@@ -3,6 +3,7 @@ package gui
 
 import (
     "fmt"
+    "os"
     "os/exec"
     "sort"
     "strings"
@@ -11,6 +12,8 @@ import (
 
     "github.com/getlantern/systray"
     "github.com/gen2brain/beeep"
+
+    "github.com/user/goports/internal/config"
     "github.com/user/goports/internal/ports"
 )
 
@@ -38,9 +41,28 @@ func onReady() {
     systray.SetTooltip("Ports")
 
     // static items at the bottom of the menu
-    aboutItem := systray.AddMenuItem("About Ports", "Open project page")
+    aboutItem := systray.AddMenuItem("About goports", "Open project page")
     systray.AddSeparator()
-    quitItem := systray.AddMenuItem("Quit", "Quit Ports")
+    quitItem := systray.AddMenuItem("Quit", "Quit goports")
+
+    // settings submenu
+    settingsItem := systray.AddMenuItem("Settings", "Preferences")
+    startItem := settingsItem.AddSubMenuItemCheckbox("Start at Login", "Launch goports when you log in", false)
+    notifItem := settingsItem.AddSubMenuItemCheckbox("Enable Notifications", "Notify when ports open/close", false)
+    refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
+
+    cfg := config.Load()
+    if cfg.StartOnLogin {
+        startItem.Check()
+    } else {
+        startItem.Uncheck()
+    }
+    if cfg.Notifications {
+        notifItem.Check()
+    } else {
+        notifItem.Uncheck()
+    }
+    refreshItem.SetTitle(fmt.Sprintf("Refresh interval (%ds)", cfg.RefreshInterval))
 
     // click handlers for static items
     go func() {
@@ -54,6 +76,46 @@ func onReady() {
         }
     }()
 
+    // settings handlers
+    go func() {
+        for range startItem.ClickedCh {
+            cfg.StartOnLogin = !cfg.StartOnLogin
+            if cfg.StartOnLogin {
+                setStartAtLogin(true)
+                startItem.Check()
+            } else {
+                setStartAtLogin(false)
+                startItem.Uncheck()
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range notifItem.ClickedCh {
+            cfg.Notifications = !cfg.Notifications
+            if cfg.Notifications {
+                notifItem.Check()
+            } else {
+                notifItem.Uncheck()
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range refreshItem.ClickedCh {
+            switch cfg.RefreshInterval {
+            case 5:
+                cfg.RefreshInterval = 10
+            case 10:
+                cfg.RefreshInterval = 15
+            default:
+                cfg.RefreshInterval = 5
+            }
+            refreshItem.SetTitle(fmt.Sprintf("Refresh interval (%ds)", cfg.RefreshInterval))
+            _ = config.Save(cfg)
+        }
+    }()
+
     // start the ticker loop; it will mutate the menu and therefore must be
     // launched from the same goroutine as onReady. We intentionally start it
     // as a goroutine so that onReady may return immediately.
@@ -64,13 +126,46 @@ func onExit() {
     // nothing special to clean up
 }
 
+// setStartAtLogin attempts to add or remove a login item using AppleScript.
+// We don't return an error to the caller — failures are non‑fatal but logged
+// to stderr.
+func setStartAtLogin(enable bool) {
+    exe, err := os.Executable()
+    if err != nil {
+        return
+    }
+    if enable {
+        // add login item
+        script := fmt.Sprintf(`tell application "System Events" to make login item at end with properties {name:"goports",path:"%s",hidden:false}`, exe)
+        exec.Command("osascript", "-e", script).Run()
+    } else {
+        exec.Command("osascript", "-e", `tell application "System Events" to delete login item "goports"`).Run()
+    }
+}
+
 func tickerLoop() {
     portMenu := make(map[int]*portMenuGroup)
     firstRun := true
-    ticker := time.NewTicker(5 * time.Second)
+
+    cfg := config.Load()
+    interval := cfg.RefreshInterval
+    if interval <= 0 {
+        interval = 5
+    }
+    ticker := time.NewTicker(time.Duration(interval) * time.Second)
     defer ticker.Stop()
 
     for {
+        // refresh config each loop in case user toggled settings
+        cfg = config.Load()
+        if cfg.RefreshInterval <= 0 {
+            cfg.RefreshInterval = 5
+        }
+        if cfg.RefreshInterval != interval {
+            interval = cfg.RefreshInterval
+            ticker.Stop()
+            ticker = time.NewTicker(time.Duration(interval) * time.Second)
+        }
         newPorts := ports.AppsByPort()
 
         var portList []int
@@ -121,7 +216,7 @@ func tickerLoop() {
                 }
                 portMenu[p] = group
 
-                if !firstRun {
+                if !firstRun && cfg.Notifications {
                     beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d was just opened by %s", p, entries[0].Name), "")
                 }
 
@@ -133,7 +228,9 @@ func tickerLoop() {
                             for _, e := range ents {
                                 syscall.Kill(int(e.Pid), syscall.SIGKILL)
                             }
-                            beeep.Notify("Killed Process", fmt.Sprintf("Terminated processes on port %d", port), "")
+                            if cfg.Notifications {
+                    beeep.Notify("Killed Process", fmt.Sprintf("Terminated processes on port %d", port), "")
+                }
                         }
                     }
                 }(p, killItem)
@@ -156,7 +253,7 @@ func tickerLoop() {
                     group.killItem.Show()
                     group.openItem.Show()
                     group.visible = true
-                    if !firstRun {
+                    if !firstRun && cfg.Notifications {
                         beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d was just opened by %s", p, entries[0].Name), "")
                     }
                 }
@@ -172,7 +269,9 @@ func tickerLoop() {
                 group.killItem.Hide()
                 group.openItem.Hide()
                 group.visible = false
-                beeep.Notify("Closed Port Discovered", fmt.Sprintf("Port %d was just closed", p), "")
+                if cfg.Notifications {
+                    beeep.Notify("Closed Port Discovered", fmt.Sprintf("Port %d was just closed", p), "")
+                }
             }
         }
 

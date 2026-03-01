@@ -1,6 +1,22 @@
+# virtualenv used for legacy python workflow
 venv
+
+# IDE/editor directories
 .idea
+.vscode
+
+# build outputs
 build
+bin/
+
+goports.app
+Ports.app
+
+dist
+*.zip
+
+# macOS
 .DS_Store
 
-bin/
+# temporary or local config
+*.log

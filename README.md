@@ -1,20 +1,20 @@
-# Ports - Local Mac Port Management Tool
+# goports - Local Mac Port Management Tool
 
-![Ports Screenshot](ports.png)
+![goports Screenshot](goports.png)
 
 ## Introduction
-**Ports** is a streamlined Mac application designed to enhance your network
+**goports** is a streamlined Mac application designed to enhance your network
 management experience. Implemented in Go, this open-source tool provides a
 real-time overview of all local ports, allowing you to quickly identify and
 manage the applications using them, right from your Mac's menu bar.
 
 Whether you're a developer, network administrator, or just curious about your
-system's network connections, Ports offers a user-friendly interface to monitor
+system's network connections, goports offers a user-friendly interface to monitor
 and control your local ports efficiently.
 
 ## Features
 
-Ports provides both a menu-bar GUI and a command-line interface built from the
+goports provides both a menu-bar GUI and a command-line interface built from the
 same discovery engine. Key capabilities include:
 
 - **Real-time port monitoring** – all listening TCP sockets are listed and
@@ -28,6 +28,9 @@ same discovery engine. Key capabilities include:
   or menu item.
 - **Lightweight Go binary** – no Python runtime, simple `go build` and `make`
   wrappers.
+- **Configurable preferences** – a settings menu lets you toggle start‑at‑login,
+  enable/disable notifications and adjust polling interval without leaving the
+  app.
 
 ## Getting Started
 
@@ -37,7 +40,7 @@ You can download a pre‑built bundle from the `dist` directory on the
 repository, for example:
 
 \`\`\`
-https://raw.githubusercontent.com/ronreiter/ports/master/dist/Ports.zip
+https://raw.githubusercontent.com/ronreiter/ports/master/dist/goports.zip
 \`\`\`
 
 Alternatively clone the repo and build locally (see **Building** below).
@@ -51,21 +54,21 @@ Use the standard `make` targets to compile and package.
 # compile the command‑line binary
 make build                    # produces bin/goports
 
-# build a macOS .app bundle and leave it in Ports.app
+# build a macOS .app bundle and leave it in goports.app
 make build-app
 
 # build and immediately launch the app (handy while iterating)
 # run-app starts the bundled binary with --gui.  Because the application
 # sets `LSUIElement=true` in its Info.plist it does **not** show a Dock
-# icon; look for the Ports icon in the menu bar rather than expecting a
+# icon; look for the goports icon in the menu bar rather than expecting a
 # window or dock entry.
 make run-app
 
-# create a zip suitable for releases (dist/Ports.zip)
+# create a zip suitable for releases (dist/goports.zip)
 make dist
 \`\`\`
 
-Drop `Ports.app` in your `/Applications` folder after building, or unzip the
+Drop `goports.app` in your `/Applications` folder after building, or unzip the
 archive produced by `make dist`.
 
 > ⚠️ `make python-build` and `setup.py` are maintained only for historic
@@ -73,7 +76,7 @@ archive produced by `make dist`.
 
 ### Usage
 
-Ports uses `lsof` under the hood to enumerate listening TCP sockets on macOS.
+goports uses `lsof` under the hood to enumerate listening TCP sockets on macOS.
 Because of that it requires the host to be macOS and for `lsof` to be available
 on the PATH (it is installed by default). The GUI and CLI share the same
 discovery logic; once a listener is detected it will appear in the menu bar and
@@ -88,6 +91,21 @@ For convenience the tool also performs:
 
 The executable supports a handful of command‑line flags for both GUI and
 headless workflows.
+
+#### GUI Settings
+
+When running in GUI mode a "Settings" submenu is available.  The following
+preferences are persisted across launches:
+
+* **Start at Login** – toggles whether goports is added to your macOS login
+  items.  Enabling will attempt to create/delete a System Events login item
+  via AppleScript; failures are non‑fatal.
+* **Enable Notifications** – when on, the menu will send native notifications
+  for ports opening and closing.  Turning it off silences those alerts.
+* **Refresh interval** – click repeatedly to cycle the polling interval
+  between 5, 10 and 15 seconds; the current value is shown in the menu label.
+
+These settings are stored in `~/.config/goports/settings.json`.
 
 * `--gui` — launch the menu‑bar GUI (default when no flags are provided).
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
@@ -109,11 +127,11 @@ Examples:
 # open a local web server on 3000
 ./bin/goports --open 3000
 
-# start the GUI explicitly (normally invoked by double-clicking Ports.app)
+# start the GUI explicitly (normally invoked by double-clicking goports.app)
 ./bin/goports --gui
 \`\`\`
 
-The GUI mode is also the default when you launch `Ports.app` from Finder.
+The GUI mode is also the default when you launch `goports.app` from Finder.
 
 ### Contribute
 
