@@ -13,13 +13,13 @@
 4. [Contribute](#contribute)
 
 
-`goports` lives in the menu bar and on the command line, giving you a
-real‑time view of every TCP listener on your Mac.  It's written in pure Go and
-has no runtime dependencies beyond the standard toolchain.
+`goports` runs as a macOS menu‑bar app and CLI utility that shows every
+listening TCP socket.  It's a single Go binary with no external runtime
+requirements.
 
-Ideal for developers, sysadmins or anyone who needs to know *what* is
-listening on a given port, the application lets you inspect, open, or kill
-processes without leaving the keyboard.
+Whether you’re developing servers, debugging networking issues or simply
+curious, goports lets you inspect, open or kill port owners without leaving
+the keyboard.
 
 ---
 
@@ -44,9 +44,9 @@ command-line interface.  Highlights:
   `http://localhost:<port>` in the default browser.
 - **Lightweight Go binary** — single executable produced with `go build`;
   legacy Python/py2app support is only retained for historical reference.
-- **Configurable preferences** — a Settings submenu controls start‑at‑login,
-  notifications, and refresh interval; preferences persist in
-  `~/.config/goports/settings.json`.
+- **Configurable preferences** — a Settings submenu controls start‑at‑login
+  (launch automatically when you sign in), notifications, and refresh
+  interval; preferences persist in `~/.config/goports/settings.json`.
 
 ## Requirements
 
@@ -100,21 +100,23 @@ archive produced by `make dist`.
 
 ### Usage
 
-goports uses `lsof` under the hood to enumerate listening TCP sockets on macOS.
-Because of that it requires the host to be macOS and for `lsof` to be available
-on the PATH (it is installed by default). The GUI and CLI share the same
-discovery logic; once a listener is detected it will appear in the menu bar and
-in the CLI table.
+`goports` enumerates listening TCP sockets via `lsof` and requires macOS.
+Both GUI and CLI share the same engine; items appear in the menu bar and the
+table automatically.
 
-For convenience the tool also performs:
+Behaviors you get “for free”:
 
-* **reverse DNS lookups** on the local address and shows the hostname if
-  resolvable (e.g. `127.0.0.1` → `localhost`).
-* **bundle identifier resolution** for macOS processes – the `APP BUNDLE`
-  column in the table will show the `CFBundleIdentifier` when available.
+* reverse DNS on local addresses (`127.0.0.1` → `localhost`)
+* process bundle ID and icon lookups when available
 
-The executable supports a handful of command‑line flags for both GUI and
-headless workflows.
+#### CLI flags
+
+```sh
+--gui          # launch menu‑bar app (default)
+--watch, -w    # refresh every N seconds
+--kill PORT    # kill processes on PORT
+--open PORT    # open http://localhost:PORT in browser
+```
 
 #### GUI Settings
 
@@ -159,7 +161,6 @@ The GUI mode is also the default when you launch `goports.app` from Finder.
 
 ### Contribute
 
-Pull requests and issues are welcome! If you're looking for low‑hanging fruit,
-the codebase is in Go under `internal/` and there are TODOs scattered
-throughout. I haven't yet implemented a startup/launch‑at‑login feature, so
-contributions in that area would be especially appreciated.
+Feel free to open issues or PRs.  The implementation lives under `internal/` and
+is intentionally small — adding new features such as cross-platform support,
+stats collection, or UI polish is straightforward.
