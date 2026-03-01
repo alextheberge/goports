@@ -3,18 +3,31 @@
 ![Ports Screenshot](ports.png)
 
 ## Introduction
-**Ports** is a streamlined Mac application designed to enhance your network management experience. 
-Implemented in Go, this open-source tool provides a real-time overview of all local ports, 
-allowing you to quickly identify and manage the applications using them, right from your Mac's menu bar.
+**Ports** is a streamlined Mac application designed to enhance your network
+management experience. Implemented in Go, this open-source tool provides a
+real-time overview of all local ports, allowing you to quickly identify and
+manage the applications using them, right from your Mac's menu bar.
 
-Whether you're a developer, network administrator, or just curious about your system's network connections,
-Ports offers a user-friendly interface to monitor and control your local ports efficiently.
+Whether you're a developer, network administrator, or just curious about your
+system's network connections, Ports offers a user-friendly interface to monitor
+and control your local ports efficiently.
 
 ## Features
-- **Real-time Port Monitoring:** Instantly view all open local ports and the applications using them.
-- **Application Identification:** Easily find out which application is listening on a specific port.
-- **Process Management:** Terminate processes right from the application with a simple click, freeing up your ports.
-- **Command Line Visibility:** See the exact command line used by any process running on a port.
+
+Ports provides both a menu-bar GUI and a command-line interface built from the
+same discovery engine. Key capabilities include:
+
+- **Real-time port monitoring** – all listening TCP sockets are listed and
+  updated every few seconds.
+- **Host name resolution** – the local address is reverse‑DNS‑looked up and
+  shown when available (e.g. `127.0.0.1` → `localhost`).
+- **Application identification** – the process name and, when available, the
+  macOS `CFBundleIdentifier` are displayed.
+- **Process control** – kill any listener directly from the GUI or CLI.
+- **Browser integration** – open a port in the default web browser via CLI flag
+  or menu item.
+- **Lightweight Go binary** – no Python runtime, simple `go build` and `make`
+  wrappers.
 
 ## Getting Started
 
@@ -23,9 +36,9 @@ Ports offers a user-friendly interface to monitor and control your local ports e
 You can download a pre‑built bundle from the `dist` directory on the
 repository, for example:
 
-```
+\`\`\`
 https://raw.githubusercontent.com/ronreiter/ports/master/dist/Ports.zip
-```
+\`\`\`
 
 Alternatively clone the repo and build locally (see **Building** below).
 
@@ -34,7 +47,7 @@ Alternatively clone the repo and build locally (see **Building** below).
 The project is now a pure Go application; there is no Python dependency.
 Use the standard `make` targets to compile and package.
 
-```bash
+\`\`\`bash
 # compile the command‑line binary
 make build                    # produces bin/goports
 
@@ -50,21 +63,21 @@ make run-app
 
 # create a zip suitable for releases (dist/Ports.zip)
 make dist
-```
+\`\`\`
 
 Drop `Ports.app` in your `/Applications` folder after building, or unzip the
 archive produced by `make dist`.
 
-> ⚠️ `make python-build` and `setup.py` are maintained only for historic reference;
-> they no longer produce a usable application.
+> ⚠️ `make python-build` and `setup.py` are maintained only for historic
+> reference; they no longer produce a usable application.
 
 ### Usage
 
 Ports uses `lsof` under the hood to enumerate listening TCP sockets on macOS.
-Because of that it requires the host to be macOS and for `lsof` to be
-available on the PATH (it is installed by default).  The GUI and CLI share the
-same discovery logic; once a listener is detected it will appear in the menu
-bar and in the CLI table.
+Because of that it requires the host to be macOS and for `lsof` to be available
+on the PATH (it is installed by default). The GUI and CLI share the same
+discovery logic; once a listener is detected it will appear in the menu bar and
+in the CLI table.
 
 For convenience the tool also performs:
 
@@ -76,17 +89,15 @@ For convenience the tool also performs:
 The executable supports a handful of command‑line flags for both GUI and
 headless workflows.
 
-* `--gui` &mdash; launch the menu‑bar GUI (default when no flags are provided).
-* `--watch`, `-w` &mdash; refresh the CLI output every 5 seconds.
-* `--kill <port>` &mdash; terminate all processes listening on `<port>`.
-* `--open <port>` &mdash; open `http://localhost:<port>` in the default
-  browser.
+* `--gui` — launch the menu‑bar GUI (default when no flags are provided).
+* `--watch`, `-w` — refresh the CLI output every 5 seconds.
+* `--kill <port>` — terminate all processes listening on `<port>`.
+* `--open <port>` — open `http://localhost:<port>` in the default browser.
 
 Examples:
 
-```bash
+\`\`\`bash
 # show a one‑shot table of current ports
-# the output now includes HOST and APP BUNDLE columns
 ./bin/goports
 
 # continuously update the table until interrupted
@@ -100,17 +111,13 @@ Examples:
 
 # start the GUI explicitly (normally invoked by double-clicking Ports.app)
 ./bin/goports --gui
-```
+\`\`\`
 
 The GUI mode is also the default when you launch `Ports.app` from Finder.
 
 ### Contribute
 
-Pull requests and issues are welcome!  If you're looking for low‑hanging
-fruit, the codebase is in Go under `internal/` and there are TODOs scattered
-throughout.
-
-
-### Contribute
-
-I haven't had the chance to develop the functionality to start the program at start-up, so please feel free to help out.
+Pull requests and issues are welcome! If you're looking for low‑hanging fruit,
+the codebase is in Go under `internal/` and there are TODOs scattered
+throughout. I haven't yet implemented a startup/launch‑at‑login feature, so
+contributions in that area would be especially appreciated.
