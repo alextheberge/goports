@@ -8,14 +8,18 @@ import (
 
 // Settings holds persistent user preferences for the application.
 type Settings struct {
-    StartOnLogin     bool `json:"start_on_login"`
-    Notifications    bool `json:"notifications"`
-    RefreshInterval  int  `json:"refresh_interval"` // seconds
+    StartOnLogin         bool              `json:"start_on_login"`
+    Notifications        bool              `json:"notifications"`
+    RefreshInterval      int               `json:"refresh_interval"` // seconds
+    SearchFilter         string            `json:"search_filter,omitempty"` // last GUI filter text
+    BlockedNotifications map[string]bool   `json:"blocked_notifications,omitempty"`
 }
 
 const defaultInterval = 5
 
-func configPath() (string, error) {
+// configPathFunc is the function used internally to compute the settings
+// file path.  It is a variable so tests may override it.
+var configPathFunc = func() (string, error) {
     dir, err := os.UserConfigDir()
     if err != nil {
         return "", err
@@ -25,6 +29,10 @@ func configPath() (string, error) {
         return "", err
     }
     return filepath.Join(cfgDir, "settings.json"), nil
+}
+
+func configPath() (string, error) {
+    return configPathFunc()
 }
 
 // Load returns the current settings, supplying defaults if the file is
@@ -45,6 +53,9 @@ func Load() Settings {
     }
     if s.RefreshInterval <= 0 {
         s.RefreshInterval = defaultInterval
+    }
+    if s.BlockedNotifications == nil {
+        s.BlockedNotifications = make(map[string]bool)
     }
     return s
 }

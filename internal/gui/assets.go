@@ -5,3 +5,6 @@ import _ "embed"
 
 //go:embed icon.icns
 var iconData []byte
+
+//go:embed icon-dark.icns
+var iconDarkData []byte

@@ -145,8 +145,18 @@ applied.)
 
 #### GUI Settings
 
-When running in GUI mode a "Settings" submenu is available.  The following
-preferences are persisted across launches:
+When running in GUI mode a "Settings" submenu is available.  In addition to
+login items and interval controls you can now:
+
+* **Filter…** — show only menu items matching a case-insensitive substring;
+  the current filter is displayed in the menu and persisted across launches.
+* **Enable Notifications** checkbox appears in each port submenu, allowing
+  you to mute alerts for specific ports.  Settings are remembered between
+  sessions.
+* The menu bar icon automatically switches between light and dark variants
+  depending on your macOS appearance.
+
+The following preferences are persisted across launches:
 
 * **Start at Login** – toggles whether goports is added to your macOS login
   items.  Enabling will attempt to create/delete a System Events login item

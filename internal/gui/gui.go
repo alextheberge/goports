@@ -22,6 +22,65 @@ import (
 
 var iconCache = make(map[string][]byte)
 
+// isDarkMode queries macOS for the current appearance.  It returns true when
+// the system appearance is set to Dark.  Failures are treated as light mode.
+func isDarkMode() bool {
+    out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output()
+    if err != nil {
+        return false
+    }
+    return strings.TrimSpace(string(out)) == "Dark"
+}
+
+// setTrayIcon picks an appropriate icon for the current appearance and
+// assigns it to the tray.  The icons are embedded via assets.go.
+func setTrayIcon() {
+    if isDarkMode() && len(iconDarkData) > 0 {
+        systray.SetIcon(iconDarkData)
+    } else {
+        systray.SetIcon(iconData)
+    }
+}
+
+// promptFilter presents a modal dialog to the user asking for a filter string.
+// On cancel the existing value is returned unchanged.
+func promptFilter(old string) string {
+    script := `tell application "System Events" to display dialog "Filter ports:" default answer "` + old + `"`
+    out, err := exec.Command("osascript", "-e", script).Output()
+    if err != nil {
+        return old
+    }
+    // out looks like "button returned:OK, text returned:foo"
+    parts := strings.Split(string(out), ",")
+    for _, p := range parts {
+        p = strings.TrimSpace(p)
+        if strings.HasPrefix(p, "text returned:") {
+            return strings.TrimPrefix(p, "text returned:")
+        }
+    }
+    return old
+}
+
+// matchesFilter returns true if any of the port entry fields match the
+// filter substring (case insensitive).
+func matchesFilter(key ports.PortKey, entries []ports.PortEntry, filter string) bool {
+    if filter == "" {
+        return true
+    }
+    f := strings.ToLower(filter)
+    if strings.Contains(key.Protocol, f) || strings.Contains(fmt.Sprint(key.Port), f) {
+        return true
+    }
+    for _, e := range entries {
+        if strings.Contains(strings.ToLower(e.Name), f) ||
+            strings.Contains(strings.ToLower(e.AppBundle), f) ||
+            strings.Contains(strings.ToLower(e.Host), f) {
+            return true
+        }
+    }
+    return false
+}
+
 // iconForBundle attempts to locate the .app associated with a bundle identifier,
 // find a .icns resource, convert it to PNG via sips, and return the raw bytes.
 // Results are cached in memory; an empty slice indicates failure.
@@ -115,8 +174,9 @@ func Run() {
 }
 
 func onReady() {
-    // configure tray icon and tooltip
-    systray.SetIcon(iconData)
+    // configure tray icon and tooltip.  the icon may change based on dark
+    // mode; setTrayIcon handles the decision and will be re-run periodically.
+    setTrayIcon()
     systray.SetTitle("") // no title, just an icon
     systray.SetTooltip("Ports")
 
@@ -129,6 +189,7 @@ func onReady() {
     settingsItem := systray.AddMenuItem("Settings", "Preferences")
     startItem := settingsItem.AddSubMenuItemCheckbox("Start at Login", "Launch goports when you log in", false)
     notifItem := settingsItem.AddSubMenuItemCheckbox("Enable Notifications", "Notify when ports open/close", false)
+    filterItem := settingsItem.AddSubMenuItem("Filter...", "Show only ports matching text")
     refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
 
     cfg := config.Load()
@@ -141,6 +202,9 @@ func onReady() {
         notifItem.Check()
     } else {
         notifItem.Uncheck()
+    }
+    if cfg.SearchFilter != "" {
+        filterItem.SetTitle(fmt.Sprintf("Filter: %s", cfg.SearchFilter))
     }
     refreshItem.SetTitle(fmt.Sprintf("Refresh interval (%ds)", cfg.RefreshInterval))
 
@@ -166,6 +230,18 @@ func onReady() {
             } else {
                 setStartAtLogin(false)
                 startItem.Uncheck()
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range filterItem.ClickedCh {
+            newf := promptFilter(cfg.SearchFilter)
+            cfg.SearchFilter = newf
+            if newf == "" {
+                filterItem.SetTitle("Filter...")
+            } else {
+                filterItem.SetTitle(fmt.Sprintf("Filter: %s", newf))
             }
             _ = config.Save(cfg)
         }
@@ -235,6 +311,12 @@ func tickerLoop() {
     ticker := time.NewTicker(time.Duration(interval) * time.Second)
     defer ticker.Stop()
 
+    // helper that updates icon based on appearance; we remember last value
+    lastDark := isDarkMode()
+    if lastDark {
+        setTrayIcon()
+    }
+
     for {
         // refresh config each loop in case user toggled settings
         cfg = config.Load()
@@ -246,6 +328,12 @@ func tickerLoop() {
             ticker.Stop()
             ticker = time.NewTicker(time.Duration(interval) * time.Second)
         }
+        // update icon if appearance changed
+        if dark := isDarkMode(); dark != lastDark {
+            setTrayIcon()
+            lastDark = dark
+        }
+
         newPorts := ports.AppsByPort()
 
         var keys []ports.PortKey
@@ -264,6 +352,19 @@ func tickerLoop() {
             entries := newPorts[key]
             if len(entries) == 0 {
                 fmt.Printf("warning: no entries for %s, skipping\n", key)
+                continue
+            }
+
+            // drop entries that don't match the user's filter
+            if !matchesFilter(key, entries, cfg.SearchFilter) {
+                if grp, ok := portMenu[key]; ok && grp.visible {
+                    grp.parent.Hide()
+                    grp.pidItem.Hide()
+                    grp.cmdItem.Hide()
+                    grp.killItem.Hide()
+                    grp.openItem.Hide()
+                    grp.visible = false
+                }
                 continue
             }
 
@@ -302,6 +403,12 @@ func tickerLoop() {
                 }
                 pidItem := parent.AddSubMenuItem("PIDs: "+strings.Join(pidStrs, ", "), "")
                 cmdItem := parent.AddSubMenuItem("Cmd: "+strings.Join(cmdStrs, " | "), "")
+                notifToggle := parent.AddSubMenuItemCheckbox("Enable Notifications", "Toggle alerts for this port", true)
+                if cfg.BlockedNotifications[key.String()] {
+                    notifToggle.Uncheck()
+                } else {
+                    notifToggle.Check()
+                }
                 killItem := parent.AddSubMenuItem("Kill All", "Terminate all processes on this port")
                 openItem := parent.AddSubMenuItem(fmt.Sprintf("Open http://localhost:%d", key.Port), "")
 
@@ -313,9 +420,25 @@ func tickerLoop() {
                     openItem: openItem,
                     visible:  true,
                 }
+
+                // notification toggle handler
+                go func(k ports.PortKey, toggle *systray.MenuItem) {
+                    for range toggle.ClickedCh {
+                        cfg := config.Load()
+                        current := cfg.BlockedNotifications[k.String()]
+                        // flip
+                        cfg.BlockedNotifications[k.String()] = !current
+                        if cfg.BlockedNotifications[k.String()] {
+                            toggle.Uncheck()
+                        } else {
+                            toggle.Check()
+                        }
+                        _ = config.Save(cfg)
+                    }
+                }(key, notifToggle)
                 portMenu[key] = group
 
-                if !firstRun && cfg.Notifications {
+                if !firstRun && cfg.Notifications && !cfg.BlockedNotifications[key.String()] {
                     beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d (%s) was just opened by %s", key.Port, strings.ToUpper(key.Protocol), entries[0].Name), "")
                 }
 
@@ -327,7 +450,7 @@ func tickerLoop() {
                             for _, e := range ents {
                                 syscall.Kill(int(e.Pid), syscall.SIGKILL)
                             }
-                            if cfg.Notifications {
+                            if cfg.Notifications && !cfg.BlockedNotifications[key.String()] {
                     beeep.Notify("Killed Process", fmt.Sprintf("Terminated processes on %s", key), "")
                 }
                         }
@@ -355,7 +478,7 @@ func tickerLoop() {
                     group.killItem.Show()
                     group.openItem.Show()
                     group.visible = true
-                    if !firstRun && cfg.Notifications {
+                    if !firstRun && cfg.Notifications && !cfg.BlockedNotifications[key.String()] {
                         beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d (%s) was just opened by %s", key.Port, strings.ToUpper(key.Protocol), entries[0].Name), "")
                     }
                 }
@@ -371,7 +494,7 @@ func tickerLoop() {
                 group.killItem.Hide()
                 group.openItem.Hide()
                 group.visible = false
-                if cfg.Notifications {
+                if cfg.Notifications && !cfg.BlockedNotifications[k.String()] {
                     beeep.Notify("Closed Port Discovered", fmt.Sprintf("Port %d (%s) was just closed", k.Port, strings.ToUpper(k.Protocol)), "")
                 }
             }

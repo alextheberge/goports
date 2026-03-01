@@ -23,10 +23,11 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 
 ## 2. GUI polish & usability
 
-- Add search/filter box in menu-bar GUI.
-- Dark mode support and accessibility labels.
-- Notifications per-port options.
-- Preferences pane for refresh interval and protocols to show.
+- ✅ Add search/filter box in menu-bar GUI.
+- ✅ Dark mode support (icon variants) and basic accessibility support.
+- ✅ Notifications per-port toggle with persisted settings.
+- Preferences pane for refresh interval and protocols to show. (still
+todo)
 
 ## 3. Developer experience & packaging
 
