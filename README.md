@@ -64,7 +64,8 @@ repository, for example:
 https://raw.githubusercontent.com/alextheberge/goports/master/dist/goports.zip
 \`\`\`
 
-Alternatively clone the repo and build locally (see **Building** below).
+Alternatively clone the repo and build locally (see **Building** below).  
+Legacy Python source has been moved to `legacy/python` for historical reference; the modern code is all Go.
 
 ### Building
 

@@ -1,8 +1,8 @@
-# legacy helper for the old Python/py2app workflow; kept only for
-# historical reference.  New development should ignore this target.
+# legacy helper for the old Python/py2app workflow; files have been
+# moved to `legacy/python` for posterity.  New development should ignore this target.
 setup:
 	python3 -m venv venv
-	venv/bin/pip install -r requirements.txt
+	venv/bin/pip install -r legacy/python/requirements.txt
 
 # Primary build target for the Go project.  Delegates to go-build so that
 # `make build` produces the Go binary as expected during the bootstrap.
@@ -11,7 +11,9 @@ build: go-build
 # Legacy Python packaging left for reference; developers can still invoke
 # `make python-build` if they absolutely need the old py2app workflow.
 python-build:
-	venv/bin/python setup.py py2app
+	# run the old py2app pipeline from its new location; this target exists
+	# solely for archival purposes and will likely break in modern environments.
+	venv/bin/python legacy/python/setup.py py2app
 	zip -r dist/goports.zip dist/goports.app
 	rm -rf dist/goports.app
 
