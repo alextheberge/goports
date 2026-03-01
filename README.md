@@ -4,7 +4,7 @@
 
 ## Introduction
 **Ports** is a streamlined Mac application designed to enhance your network management experience. 
-Written in Python, this open-source tool provides a real-time overview of all local ports, 
+Implemented in Go, this open-source tool provides a real-time overview of all local ports, 
 allowing you to quickly identify and manage the applications using them, right from your Mac's menu bar.
 
 Whether you're a developer, network administrator, or just curious about your system's network connections,
@@ -20,30 +20,95 @@ Ports offers a user-friendly interface to monitor and control your local ports e
 
 ### Download
 
-Download the latest release here:
+You can download a pre‑built bundle from the `dist` directory on the
+repository, for example:
 
+```
 https://raw.githubusercontent.com/ronreiter/ports/master/dist/Ports.zip
-
-### Installation
-To get started with Ports, simply clone the repository and run the application on your Mac:
-
-```bash
-make
-make build
 ```
 
+Alternatively clone the repo and build locally (see **Building** below).
+
+### Building
+
+The project is now a pure Go application; there is no Python dependency.
+Use the standard `make` targets to compile and package.
+
+```bash
+# compile the command‑line binary
+make build                    # produces bin/goports
+
+# build a macOS .app bundle and leave it in Ports.app
+make build-app
+
+# build and immediately launch the app (handy while iterating)
+# run-app starts the bundled binary with --gui.  Because the application
+# sets `LSUIElement=true` in its Info.plist it does **not** show a Dock
+# icon; look for the Ports icon in the menu bar rather than expecting a
+# window or dock entry.
+make run-app
+
+# create a zip suitable for releases (dist/Ports.zip)
+make dist
+```
+
+Drop `Ports.app` in your `/Applications` folder after building, or unzip the
+archive produced by `make dist`.
+
+> ⚠️ `make python-build` and `setup.py` are maintained only for historic reference;
+> they no longer produce a usable application.
+
 ### Usage
-After either building the application locally or downloading the latest release, 
-simply drag the application to your Applications folder and run it.
 
-Ports is designed to be intuitive and easy to use. The application  displays a list of all open local ports, 
-along with the applications using them. 
+Ports uses `lsof` under the hood to enumerate listening TCP sockets on macOS.
+Because of that it requires the host to be macOS and for `lsof` to be
+available on the PATH (it is installed by default).  The GUI and CLI share the
+same discovery logic; once a listener is detected it will appear in the menu
+bar and in the CLI table.
 
-To see all open ports and the processes opening them, simply click on the Ports app from the menu bar.
+For convenience the tool also performs:
 
-To terminate a process, simply select it from the list and click the "Terminate" button. 
+* **reverse DNS lookups** on the local address and shows the hostname if
+  resolvable (e.g. `127.0.0.1` → `localhost`).
+* **bundle identifier resolution** for macOS processes – the `APP BUNDLE`
+  column in the table will show the `CFBundleIdentifier` when available.
 
-To view the exact command line used by a process, hover on top of each process and it will appear.
+The executable supports a handful of command‑line flags for both GUI and
+headless workflows.
+
+* `--gui` &mdash; launch the menu‑bar GUI (default when no flags are provided).
+* `--watch`, `-w` &mdash; refresh the CLI output every 5 seconds.
+* `--kill <port>` &mdash; terminate all processes listening on `<port>`.
+* `--open <port>` &mdash; open `http://localhost:<port>` in the default
+  browser.
+
+Examples:
+
+```bash
+# show a one‑shot table of current ports
+# the output now includes HOST and APP BUNDLE columns
+./bin/goports
+
+# continuously update the table until interrupted
+./bin/goports --watch
+
+# kill whatever is bound to 8080
+./bin/goports --kill 8080
+
+# open a local web server on 3000
+./bin/goports --open 3000
+
+# start the GUI explicitly (normally invoked by double-clicking Ports.app)
+./bin/goports --gui
+```
+
+The GUI mode is also the default when you launch `Ports.app` from Finder.
+
+### Contribute
+
+Pull requests and issues are welcome!  If you're looking for low‑hanging
+fruit, the codebase is in Go under `internal/` and there are TODOs scattered
+throughout.
 
 
 ### Contribute

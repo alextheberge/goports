@@ -2,3 +2,5 @@ venv
 .idea
 build
 .DS_Store
+
+bin/
