@@ -52,9 +52,28 @@ func iconForBundle(bundle string) []byte {
         iconCache[bundle] = nil
         return nil
     }
-    png, err := exec.Command("sips", "-s", "format", "png", icnsPath, "--out", "/dev/stdout").Output()
+    // sips sometimes refuses to write to stdout (exit code 13), especially
+    // when the source file is protected.  Work around by writing to a temp
+    // file and reading that back.
+    tmp, err := os.CreateTemp("", "goports-icon-*.png")
     if err != nil {
+        fmt.Fprintf(os.Stderr, "iconForBundle: temp file create failed: %v\n", err)
+        iconCache[bundle] = nil
+        return nil
+    }
+    tmpPath := tmp.Name()
+    tmp.Close()
+    defer os.Remove(tmpPath)
+
+    cmd := exec.Command("sips", "-s", "format", "png", icnsPath, "--out", tmpPath)
+    if err := cmd.Run(); err != nil {
         fmt.Fprintf(os.Stderr, "iconForBundle: sips failed for %s: %v\n", icnsPath, err)
+        iconCache[bundle] = nil
+        return nil
+    }
+    png, err := os.ReadFile(tmpPath)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "iconForBundle: read temp icon failed: %v\n", err)
         iconCache[bundle] = nil
         return nil
     }
