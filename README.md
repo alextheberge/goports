@@ -14,8 +14,10 @@
 
 
 `goports` runs as a macOS menu‑bar app and CLI utility that shows every
-listening TCP socket.  It's a single Go binary with no external runtime
-requirements.
+listening TCP socket (and now UDP listeners too).  IPv4 and IPv6 addresses are
+handled, and the output identifies the protocol so you can distinguish
+`tcp/80` from `udp/53` easily.  It's a single Go binary with no external
+runtime requirements.
 
 Whether you’re developing servers, debugging networking issues or simply
 curious, goports lets you inspect, open or kill port owners without leaving
@@ -28,8 +30,8 @@ the keyboard.
 goports exposes the same discovery engine to both a menu-bar GUI and a
 command-line interface.  Highlights:
 
-- **Real-time port monitoring** – all listening TCP sockets are listed and
-  updated every few seconds.
+- **Real-time port monitoring** – all listening TCP sockets (and UDP
+  listeners) are listed and updated every few seconds.
 - **Host name resolution** — reverse DNS is performed on each address, so
   `127.0.0.1` may appear as `localhost`.
 - **Application identification** — see the executable name and, when
@@ -58,6 +60,11 @@ command-line interface.  Highlights:
 - optional: Spotlight indexing enabled for icon resolution
 
 ## Getting Started
+_Note: the CLI engine is now abstracted so ports discovery can be implemented
+on non‑macOS platforms.  The application separates GUI code behind build
+tags; non‑darwin builds produce a CLI-only binary that will compile anywhere.
+Currently only macOS provides a working backend, but the scaffolding is in
+place for Linux/Windows support._
 
 ### Download
 
@@ -100,22 +107,40 @@ archive produced by `make dist`.
 
 ### Usage
 
-`goports` enumerates listening TCP sockets via `lsof` and requires macOS.
-Both GUI and CLI share the same engine; items appear in the menu bar and the
-table automatically.
+`goports` enumerates listening sockets via a platform-specific engine.
+On macOS the implementation shells out to `lsof`, and the code is structured
+so that Linux/Windows backends can be added in the future.  Currently the
+utility requires macOS; attempts to build or run on other OSes will produce
+an "not implemented" error.  The CLI output includes a ``PROTO`` column so
+the protocol is obvious.  Both GUI and CLI share the same engine; items
+appear in the menu bar and the table automatically.
 
 Behaviors you get “for free”:
 
-* reverse DNS on local addresses (`127.0.0.1` → `localhost`)
+* reverse DNS on local addresses (`127.0.0.1` → `localhost`,
+  bracketed IPv6 addresses are also handled)
 * process bundle ID and icon lookups when available
 
 #### CLI flags
 
+Several new options make scripting and interaction more flexible.  (Note
+that the `PROTO` and `FAMILY` columns are shown when no filters are
+applied.)
+
 ```sh
---gui          # launch menu‑bar app (default)
---watch, -w    # refresh every N seconds
---kill PORT    # kill processes on PORT
---open PORT    # open http://localhost:PORT in browser
+--gui                 # launch menu‑bar app (default)
+--watch, -w           # refresh every N seconds
+--kill PORT           # kill processes on PORT (any protocol)
+--kill-name SUBSTR    # kill matching process names
+--kill-bundle SUBSTR  # kill matching bundle identifiers
+--signal NAME         # signal to send (TERM, KILL, etc.)
+--proto tcp|udp       # filter displayed protocols
+--name SUBSTR         # filter by process name
+--bundle SUBSTR       # filter by bundle identifier
+--family IPv4|IPv6    # filter by address family
+--json                # output JSON
+--csv                 # output CSV
+--open PORT           # open http://localhost:PORT in browser
 ```
 
 #### GUI Settings
@@ -135,10 +160,22 @@ These settings are stored in `~/.config/goports/settings.json`.
 
 * `--gui` — launch the menu‑bar GUI (default when no flags are provided).
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
-* `--kill <port>` — terminate all processes listening on `<port>`.
+* `--kill <port>` — terminate all processes listening on `<port>`
+  (any protocol).
+* `--kill-name <substr>` — terminate processes whose command name contains
+  `<substr>`.
+* `--kill-bundle <substr>` — terminate processes whose bundle identifier
+  contains `<substr>`.
+* `--signal <name>` — specify signal to use for kills (TERM, INT, KILL,
+  etc.).
 * `--open <port>` — open `http://localhost:<port>` in the default browser.
 
 Examples:
+
+```bash
+# show a one‑shot table of current ports (proto column added)
+./bin/goports
+```
 
 \`\`\`bash
 # show a one‑shot table of current ports

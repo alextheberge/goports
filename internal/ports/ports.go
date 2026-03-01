@@ -2,21 +2,27 @@
 package ports
 
 import (
+    "context"
     "fmt"
     "net"
     "os/exec"
     "path/filepath"
     "strings"
+    "sync"
+    "time"
 )
 
-// PortEntry holds information about a single process listening on a port.
-// The fields mirror the expectations of the CLI renderer and allow callers to
-// aggregate by port number.
+// PortEntry holds information about a single process listening on a port or
+// socket.  Fields mirror the expectations of the CLI/GUI renderers and are
+// also convenient for aggregation by protocol/port.
 //
 // Host and AppBundle are both resolved lazily: Host is obtained by performing
-// a reverse DNS lookup on the local address, and AppBundle is the macOS bundle
-// identifier (if known) for the process.  CPU and Mem are reserved for future
-// statistics enhancements.
+// a reverse DNS lookup on the listening address, and AppBundle is the macOS
+// bundle identifier (if known) for the process.  Additional fields (CPU/Mem)
+// are reserved for future statistics enhancements.
+//
+// The new Protocol field distinguishes TCP/UDP (and eventually other types),
+// which is required now that the tool understands more than just TCP.
 //
 // Any field may be empty; callers should treat missing data as non‑fatal.
 type PortEntry struct {
@@ -25,6 +31,8 @@ type PortEntry struct {
     Cmdline   string  // full command line
     Host      string  // resolved hostname for listening interface
     AppBundle string  // application bundle identifier (if macOS)
+    Protocol  string  // "tcp", "udp", etc.
+    Family    string  // address family as reported by lsof ("IPv4"/"IPv6")
     CPU       float64 // CPU usage percentage
     Mem       uint64  // RSS memory in bytes
 }
@@ -32,9 +40,17 @@ type PortEntry struct {
 // bundleIDForPID attempts to determine a running process's bundle
 // identifier by invoking `ps` to get its command path and passing that path to
 // `mdls`.  A blank string is returned on failure.
+// The real bundle lookup is performed by bundleIDForPID.  Tests may
+// override bundleIDFunc to avoid executing `ps`/`mdls`.
+var bundleIDFunc = bundleIDForPID
+
 func bundleIDForPID(pid int32) string {
-    out, err := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "comm=").Output()
+    if v, ok := bundleCache.Load(pid); ok {
+        return v.(string)
+    }
+    out, err := runCmd("ps", "-p", fmt.Sprintf("%d", pid), "-o", "comm=")
     if err != nil {
+        bundleCache.Store(pid, "")
         return ""
     }
     path := strings.TrimSpace(string(out))
@@ -58,7 +74,7 @@ func bundleIDForPID(pid int32) string {
     if dir == "" {
         return ""
     }
-    if bid, err := exec.Command("mdls", "-name", "kMDItemCFBundleIdentifier", "-raw", dir).Output(); err == nil {
+    if bid, err := runCmd("mdls", "-name", "kMDItemCFBundleIdentifier", "-raw", dir); err == nil {
         s := strings.TrimSpace(string(bid))
         if s != "(null)" {
             return s
@@ -67,9 +83,21 @@ func bundleIDForPID(pid int32) string {
     return ""
 }
 
+// lookupAddrFunc is used by resolveHost and can be swapped in tests to
+// avoid real network lookups.
+var lookupAddrFunc = net.LookupAddr
+
+// caches to avoid repeated DNS and bundle lookups during a single run.
+// sync.Map is used for simplicity; the data set is very small so contention
+// is negligible.
+var hostCache sync.Map    // map[string]string
+var bundleCache sync.Map  // map[int32]string
+
 // resolveHost performs a reverse DNS lookup on the address portion of an
-// lsof NAME field (e.g. "127.0.0.1:80").  If resolution succeeds the first
-// hostname is returned sans trailing dot.  Wildcards ("*") yield empty.
+// lsof NAME field (e.g. "127.0.0.1:80" or "[::1]:8000").  If resolution
+// succeeds the first hostname is returned sans trailing dot.  Wildcards
+// ("*" or "*") yield empty.  Bracketed IPv6 addresses are stripped prior
+// to lookup.
 func resolveHost(address string) string {
     colon := strings.LastIndex(address, ":")
     if colon == -1 {
@@ -79,29 +107,80 @@ func resolveHost(address string) string {
     if host == "*" {
         return ""
     }
-    names, err := net.LookupAddr(host)
-    if err == nil && len(names) > 0 {
-        return strings.TrimSuffix(names[0], ".")
+    // strip surrounding brackets for IPv6
+    if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+        host = host[1 : len(host)-1]
     }
-    return ""
+    if v, ok := hostCache.Load(host); ok {
+        return v.(string)
+    }
+    names, err := lookupAddrFunc(host)
+    result := ""
+    if err == nil && len(names) > 0 {
+        result = strings.TrimSuffix(names[0], ".")
+    }
+    hostCache.Store(host, result)
+    return result
 }
 
-// AppsByPort returns a mapping from listening port numbers to a slice of
-// PortEntry instances representing processes bound to that port.  On macOS
-// we shell out to `lsof` because Go does not provide a cross‑platform API for
-// enumerating listening sockets.  The output is parsed and then enriched with
-// a full command line pulled from `ps` so the CLI/table and GUI can display
-// something useful.
-//
-// If anything goes wrong we silently return an empty map; callers are expected
-// to handle that gracefully (the GUI already does).
-func AppsByPort() map[int][]PortEntry {
-    portsMap := make(map[int][]PortEntry)
+// commandTimeout is used when invoking external utilities.  It is intentionally
+// short to avoid a hung tool locking the entire app; callers may override
+// during testing if necessary.
+var commandTimeout = 2 * time.Second
 
-    out, err := exec.Command("lsof", "-nP", "-iTCP", "-sTCP:LISTEN").Output()
+// runCmd executes a command with the global timeout and returns its output.
+// It is a small wrapper around exec.CommandContext for convenience.
+func runCmd(name string, args ...string) ([]byte, error) {
+    ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+    defer cancel()
+    return exec.CommandContext(ctx, name, args...).Output()
+}
+
+// PortKey identifies a unique listening port endpoint.  The combination of
+// protocol and port number is required now that we track both TCP and UDP
+// sockets (future expansions may include unix domain sockets, etc.).
+// The type is comparable so it can be used directly as a map key.
+type PortKey struct {
+    Protocol string // e.g. "tcp", "udp"
+    Port     int
+}
+
+func (k PortKey) String() string {
+    return fmt.Sprintf("%s/%d", k.Protocol, k.Port)
+}
+
+// AppsByPort returns a mapping from PortKey to a slice of PortEntry instances
+// representing processes bound to that socket.  We shell out to `lsof` on
+// macOS because Go has no cross‑platform introspection API; the command now
+// requests both TCP listeners and all UDP sockets.  Lines are handed off to
+// parseLsof so the behavior is testable.
+// AppsByPort returns all listening sockets, keyed by protocol/port.  The
+// implementation is intentionally thin: it retrieves raw data from
+// discoverPorts, then parses it.  Eventually discoverPorts will have
+// OS-specific implementations so other platforms can be supported without
+// reworking the parsing logic.
+func AppsByPort() map[PortKey][]PortEntry {
+    portsMap := make(map[PortKey][]PortEntry)
+
+    out, err := discoverPorts()
     if err != nil {
         return portsMap
     }
+    return parseLsof(out)
+}
+
+// discoverPorts is implemented per-OS in other files.  The darwin version
+// shells out to lsof; linux will eventually parse /proc/net, etc.  A generic
+// stub (ports_stub.go) returns an error to indicate the platform is not
+// supported.
+//
+// func discoverPorts() ([]byte, error)
+
+// parseLsof consumes the raw output of an `lsof` invocation and returns the
+// corresponding ports map.  It is exported indirectly via AppsByPort but also
+// used in unit tests with synthetic data.
+func parseLsof(out []byte) map[PortKey][]PortEntry {
+    portsMap := make(map[PortKey][]PortEntry)
 
     lines := strings.Split(string(out), "\n")
     if len(lines) <= 1 {
@@ -116,18 +195,19 @@ func AppsByPort() map[int][]PortEntry {
         if len(fields) < 9 {
             continue
         }
-        // lsof output columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+        // lsof columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
         cmdName := fields[0]
         pidStr := fields[1]
-        // lsof typically appends a final "(LISTEN)" token; if present
-        // ignore it and take the preceding field as the address.
+        proto := strings.ToLower(fields[7]) // NODE column contains "TCP" or "UDP"
+        family := fields[4]                    // TYPE column contains "IPv4" or "IPv6"
+
+        // determine address field; skip trailing "(LISTEN)" token if present
         nameField := fields[len(fields)-1]
         if nameField == "(LISTEN)" && len(fields) >= 2 {
             nameField = fields[len(fields)-2]
         }
 
-        // extract port from NAME column (e.g. "*:8080" or "127.0.0.1:80").
-        // there may be IPv6 addresses like "[::1]:8000"; use LastIndex.
+        // extract port number; works with IPv6 bracketed addresses as well
         colon := strings.LastIndex(nameField, ":")
         if colon == -1 {
             continue
@@ -141,22 +221,25 @@ func AppsByPort() map[int][]PortEntry {
         pid := int32(0)
         fmt.Sscanf(pidStr, "%d", &pid)
 
-        // obtain full command line via ps
+        // obtain full command line via ps; ignore errors
         cmdline := cmdName
         if pid > 0 {
-            if cl, err := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "command=").Output(); err == nil {
+            if cl, err := runCmd("ps", "-p", fmt.Sprintf("%d", pid), "-o", "command="); err == nil {
                 cmdline = strings.TrimSpace(string(cl))
             }
         }
 
         entry := PortEntry{
-            Pid:     pid,
-            Name:    cmdName,
-            Cmdline: cmdline,
-            Host:    resolveHost(nameField),
-            AppBundle: bundleIDForPID(pid),
+            Pid:       pid,
+            Name:      cmdName,
+            Cmdline:   cmdline,
+            Host:      resolveHost(nameField),
+            AppBundle: bundleIDFunc(pid),
+            Protocol:  proto,
+            Family:    family,
         }
-        portsMap[portNum] = append(portsMap[portNum], entry)
+        key := PortKey{Protocol: proto, Port: portNum}
+        portsMap[key] = append(portsMap[key], entry)
     }
 
     return portsMap

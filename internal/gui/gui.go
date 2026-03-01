@@ -224,7 +224,7 @@ func setStartAtLogin(enable bool) {
 }
 
 func tickerLoop() {
-    portMenu := make(map[int]*portMenuGroup)
+    portMenu := make(map[ports.PortKey]*portMenuGroup)
     firstRun := true
 
     cfg := config.Load()
@@ -248,17 +248,22 @@ func tickerLoop() {
         }
         newPorts := ports.AppsByPort()
 
-        var portList []int
-        for p := range newPorts {
-            portList = append(portList, p)
+        var keys []ports.PortKey
+        for k := range newPorts {
+            keys = append(keys, k)
         }
-        sort.Ints(portList)
+        sort.Slice(keys, func(i, j int) bool {
+            if keys[i].Protocol == keys[j].Protocol {
+                return keys[i].Port < keys[j].Port
+            }
+            return keys[i].Protocol < keys[j].Protocol
+        })
 
         // process current ports
-        for _, p := range portList {
-            entries := newPorts[p]
+        for _, key := range keys {
+            entries := newPorts[key]
             if len(entries) == 0 {
-                fmt.Printf("warning: no entries for port %d, skipping\n", p)
+                fmt.Printf("warning: no entries for %s, skipping\n", key)
                 continue
             }
 
@@ -269,7 +274,7 @@ func tickerLoop() {
                 pidStrs = append(pidStrs, fmt.Sprintf("%d", e.Pid))
                 cmdStrs = append(cmdStrs, e.Cmdline)
             }
-            title := fmt.Sprintf("%d", p)
+            title := fmt.Sprintf("%s %d", strings.ToUpper(key.Protocol), key.Port)
             if entries[0].Host != "" {
                 title += fmt.Sprintf(" (%s)", entries[0].Host)
             }
@@ -278,7 +283,7 @@ func tickerLoop() {
                 title += fmt.Sprintf(" (%s)", entries[0].AppBundle)
             }
 
-            group, exists := portMenu[p]
+            group, exists := portMenu[key]
             if !exists {
                 parent := systray.AddMenuItem(title, "")
                 // attempt to attach application icon if available
@@ -298,7 +303,7 @@ func tickerLoop() {
                 pidItem := parent.AddSubMenuItem("PIDs: "+strings.Join(pidStrs, ", "), "")
                 cmdItem := parent.AddSubMenuItem("Cmd: "+strings.Join(cmdStrs, " | "), "")
                 killItem := parent.AddSubMenuItem("Kill All", "Terminate all processes on this port")
-                openItem := parent.AddSubMenuItem(fmt.Sprintf("Open http://localhost:%d", p), "")
+                openItem := parent.AddSubMenuItem(fmt.Sprintf("Open http://localhost:%d", key.Port), "")
 
                 group = &portMenuGroup{
                     parent:   parent,
@@ -308,33 +313,36 @@ func tickerLoop() {
                     openItem: openItem,
                     visible:  true,
                 }
-                portMenu[p] = group
+                portMenu[key] = group
 
                 if !firstRun && cfg.Notifications {
-                    beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d was just opened by %s", p, entries[0].Name), "")
+                    beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d (%s) was just opened by %s", key.Port, strings.ToUpper(key.Protocol), entries[0].Name), "")
                 }
 
                 // kill handler; runs once per logical port
-                go func(port int, kill *systray.MenuItem) {
+                go func(key ports.PortKey, kill *systray.MenuItem) {
                     for range kill.ClickedCh {
                         cur := ports.AppsByPort()
-                        if ents, ok := cur[port]; ok {
+                        if ents, ok := cur[key]; ok {
                             for _, e := range ents {
                                 syscall.Kill(int(e.Pid), syscall.SIGKILL)
                             }
                             if cfg.Notifications {
-                    beeep.Notify("Killed Process", fmt.Sprintf("Terminated processes on port %d", port), "")
+                    beeep.Notify("Killed Process", fmt.Sprintf("Terminated processes on %s", key), "")
                 }
                         }
                     }
-                }(p, killItem)
+                }(key, killItem)
 
                 // open handler
-                go func(port int, open *systray.MenuItem) {
+                go func(key ports.PortKey, open *systray.MenuItem) {
                     for range open.ClickedCh {
-                        exec.Command("open", fmt.Sprintf("http://localhost:%d", port)).Run()
+                        // only makes sense for tcp
+                        if key.Protocol == "tcp" {
+                            exec.Command("open", fmt.Sprintf("http://localhost:%d", key.Port)).Run()
+                        }
                     }
-                }(p, openItem)
+                }(key, openItem)
             } else {
                 // update existing group and make visible if it was hidden
                 group.parent.SetTitle(title)
@@ -348,15 +356,15 @@ func tickerLoop() {
                     group.openItem.Show()
                     group.visible = true
                     if !firstRun && cfg.Notifications {
-                        beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d was just opened by %s", p, entries[0].Name), "")
+                        beeep.Notify("Open Port Discovered", fmt.Sprintf("Port %d (%s) was just opened by %s", key.Port, strings.ToUpper(key.Protocol), entries[0].Name), "")
                     }
                 }
             }
         }
 
         // hide ports that have closed
-        for p, group := range portMenu {
-            if _, still := newPorts[p]; !still && group.visible {
+        for k, group := range portMenu {
+            if _, still := newPorts[k]; !still && group.visible {
                 group.parent.Hide()
                 group.pidItem.Hide()
                 group.cmdItem.Hide()
@@ -364,7 +372,7 @@ func tickerLoop() {
                 group.openItem.Hide()
                 group.visible = false
                 if cfg.Notifications {
-                    beeep.Notify("Closed Port Discovered", fmt.Sprintf("Port %d was just closed", p), "")
+                    beeep.Notify("Closed Port Discovered", fmt.Sprintf("Port %d (%s) was just closed", k.Port, strings.ToUpper(k.Protocol)), "")
                 }
             }
         }
