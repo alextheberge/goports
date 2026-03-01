@@ -33,11 +33,13 @@ command-line interface.  Highlights:
 - **Host name resolution** — reverse DNS is performed on each address, so
   `127.0.0.1` may appear as `localhost`.
 - **Application identification** — see the executable name and, when
-  possible, its `CFBundleIdentifier`.  The GUI also attempts to display the
-  app’s icon (requires Spotlight indexing and the `sips` tool; the code now
-  converts `.icns` via a temporary file, avoiding previous `sips` "exit status
-  13" errors).  Run the GUI from a terminal and look for `iconForBundle:`
-  messages on stderr if icons fail to load.
+  possible, its `CFBundleIdentifier`.  The GUI looks up a matching bundle and
+  icon via Spotlight; for plain binaries we fall back to built-in PNGs for a
+  handful of common tools (`ruby`, `prometheus`, `netcat`, `nxrunner`,
+  `onedrive`, `rapportd`, etc.).  Icons require the `sips` tool; the code uses a
+  temporary file to avoid earlier "exit status 13" problems.  Launch the GUI
+  from a terminal and check stderr for `iconForBundle:` messages if something
+  still goes wrong.
 - **Process control** — terminate listeners directly from the menu or
   with `--kill`.
 - **Browser integration** — `--open` or the GUI menu item launches

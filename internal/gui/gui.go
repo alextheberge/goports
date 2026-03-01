@@ -282,8 +282,16 @@ func tickerLoop() {
             if !exists {
                 parent := systray.AddMenuItem(title, "")
                 // attempt to attach application icon if available
+                var setIcon bool
                 if entries[0].AppBundle != "" {
                     if icon := iconForBundle(entries[0].AppBundle); len(icon) > 0 {
+                        parent.SetIcon(icon)
+                        setIcon = true
+                    }
+                }
+                // fallback based on executable name when bundle lookup fails
+                if !setIcon {
+                    if icon := iconForName(entries[0].Name); len(icon) > 0 {
                         parent.SetIcon(icon)
                     }
                 }
