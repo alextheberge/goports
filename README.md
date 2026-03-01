@@ -75,21 +75,19 @@ The project is now a pure Go application; there is no Python dependency.
 Use the standard `make` targets to compile and package.
 
 \`\`\`bash
-# compile the command‑line binary
-make build                    # produces bin/goports
+# compile the CLI binary (output: bin/goports)
+make build
 
-# build a macOS .app bundle and leave it in goports.app
-make build-app
+# create a macOS app bundle
+make build-app           # writes goports.app
 
-# build and immediately launch the app (handy while iterating)
-# run-app starts the bundled binary with --gui.  Because the application
-# sets `LSUIElement=true` in its Info.plist it does **not** show a Dock
-# icon; look for the goports icon in the menu bar rather than expecting a
-# window or dock entry.
+# build then immediately run the bundle (GUI mode)
+# the app has LSUIElement=true so no Dock icon is shown –
+# look for its icon in the menu bar instead.
 make run-app
 
-# create a zip suitable for releases (dist/goports.zip)
-make dist
+# package the bundle for release
+make dist                # writes dist/goports.zip
 \`\`\`
 
 Drop `goports.app` in your `/Applications` folder after building, or unzip the
