@@ -1,36 +1,57 @@
-# goports - Local Mac Port Management Tool
+# goports – Local macOS Port Management Utility
 
 ![goports Screenshot](goports.png)
 
-## Introduction
-**goports** is a streamlined Mac application designed to enhance your network
-management experience. Implemented in Go, this open-source tool provides a
-real-time overview of all local ports, allowing you to quickly identify and
-manage the applications using them, right from your Mac's menu bar.
+## Table of Contents
 
-Whether you're a developer, network administrator, or just curious about your
-system's network connections, goports offers a user-friendly interface to monitor
-and control your local ports efficiently.
+1. [Features](#features)
+2. [Requirements](#requirements)
+3. [Getting Started](#getting-started)
+   * [Download](#download)
+   * [Building](#building)
+   * [Usage](#usage)
+4. [Contribute](#contribute)
+
+
+`goports` lives in the menu bar and on the command line, giving you a
+real‑time view of every TCP listener on your Mac.  It's written in pure Go and
+has no runtime dependencies beyond the standard toolchain.
+
+Ideal for developers, sysadmins or anyone who needs to know *what* is
+listening on a given port, the application lets you inspect, open, or kill
+processes without leaving the keyboard.
+
+---
 
 ## Features
 
-goports provides both a menu-bar GUI and a command-line interface built from the
-same discovery engine. Key capabilities include:
+goports exposes the same discovery engine to both a menu-bar GUI and a
+command-line interface.  Highlights:
 
 - **Real-time port monitoring** – all listening TCP sockets are listed and
   updated every few seconds.
-- **Host name resolution** – the local address is reverse‑DNS‑looked up and
-  shown when available (e.g. `127.0.0.1` → `localhost`).
-- **Application identification** – the process name and, when available, the
-  macOS `CFBundleIdentifier` are displayed.
-- **Process control** – kill any listener directly from the GUI or CLI.
-- **Browser integration** – open a port in the default web browser via CLI flag
-  or menu item.
-- **Lightweight Go binary** – no Python runtime, simple `go build` and `make`
-  wrappers.
-- **Configurable preferences** – a settings menu lets you toggle start‑at‑login,
-  enable/disable notifications and adjust polling interval without leaving the
-  app.
+- **Host name resolution** — reverse DNS is performed on each address, so
+  `127.0.0.1` may appear as `localhost`.
+- **Application identification** — see the executable name and, when
+  possible, its `CFBundleIdentifier`.  The GUI also attempts to display the
+  app’s icon (requires Spotlight indexing and the `sips` tool; debug messages
+  appear on stderr).
+- **Process control** — terminate listeners directly from the menu or
+  with `--kill`.
+- **Browser integration** — `--open` or the GUI menu item launches
+  `http://localhost:<port>` in the default browser.
+- **Lightweight Go binary** — single executable produced with `go build`;
+  legacy Python/py2app support is only retained for historical reference.
+- **Configurable preferences** — a Settings submenu controls start‑at‑login,
+  notifications, and refresh interval; preferences persist in
+  `~/.config/goports/settings.json`.
+
+## Requirements
+
+- macOS (apps use `lsof` and Cocoa menu bar APIs)
+- `lsof` must be present on your PATH (installed by default on macOS)
+- `sips` required if you want application icons in the GUI
+- optional: Spotlight indexing enabled for icon resolution
 
 ## Getting Started
 
@@ -40,7 +61,7 @@ You can download a pre‑built bundle from the `dist` directory on the
 repository, for example:
 
 \`\`\`
-https://raw.githubusercontent.com/ronreiter/ports/master/dist/goports.zip
+https://raw.githubusercontent.com/alextheberge/goports/master/dist/goports.zip
 \`\`\`
 
 Alternatively clone the repo and build locally (see **Building** below).

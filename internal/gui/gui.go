@@ -5,6 +5,7 @@ import (
     "fmt"
     "os"
     "os/exec"
+    "path/filepath"
     "sort"
     "strings"
     "syscall"
@@ -18,6 +19,66 @@ import (
 )
 
 // portMenuGroup holds the menu items associated with a particular port.
+
+var iconCache = make(map[string][]byte)
+
+// iconForBundle attempts to locate the .app associated with a bundle identifier,
+// find a .icns resource, convert it to PNG via sips, and return the raw bytes.
+// Results are cached in memory; an empty slice indicates failure.
+func iconForBundle(bundle string) []byte {
+    if bundle == "" {
+        return nil
+    }
+    if b, ok := iconCache[bundle]; ok {
+        return b
+    }
+    // locate app path via mdfind
+    out, err := exec.Command("mdfind", "kMDItemCFBundleIdentifier == '"+bundle+"'").Output()
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "iconForBundle: mdfind failed for %s: %v\n", bundle, err)
+        iconCache[bundle] = nil
+        return nil
+    }
+    lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+    if len(lines) == 0 || lines[0] == "" {
+        fmt.Fprintf(os.Stderr, "iconForBundle: no path found for %s\n", bundle)
+        iconCache[bundle] = nil
+        return nil
+    }
+    appPath := lines[0]
+    icnsPath := findIcns(appPath)
+    if icnsPath == "" {
+        fmt.Fprintf(os.Stderr, "iconForBundle: no icns under %s\n", appPath)
+        iconCache[bundle] = nil
+        return nil
+    }
+    png, err := exec.Command("sips", "-s", "format", "png", icnsPath, "--out", "/dev/stdout").Output()
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "iconForBundle: sips failed for %s: %v\n", icnsPath, err)
+        iconCache[bundle] = nil
+        return nil
+    }
+    fmt.Fprintf(os.Stderr, "iconForBundle: loaded icon for %s (%d bytes)\n", bundle, len(png))
+    iconCache[bundle] = png
+    return png
+}
+
+// findIcns looks for the first .icns file under the app's Resources directory.
+func findIcns(appPath string) string {
+    var result string
+    resources := filepath.Join(appPath, "Contents", "Resources")
+    filepath.Walk(resources, func(path string, info os.FileInfo, err error) error {
+        if err != nil || result != "" {
+            return nil
+        }
+        if !info.IsDir() && strings.HasSuffix(path, ".icns") {
+            result = path
+            return filepath.SkipDir
+        }
+        return nil
+    })
+    return result
+}
 // by keeping a permanent structure we avoid recreating goroutines and menu
 // entries on every reopen.
 type portMenuGroup struct {
@@ -67,7 +128,7 @@ func onReady() {
     // click handlers for static items
     go func() {
         for range aboutItem.ClickedCh {
-            exec.Command("open", "https://github.com/ronreiter/ports").Run()
+            exec.Command("open", "https://github.com/alextheberge/goports").Run()
         }
     }()
     go func() {
@@ -201,6 +262,12 @@ func tickerLoop() {
             group, exists := portMenu[p]
             if !exists {
                 parent := systray.AddMenuItem(title, "")
+                // attempt to attach application icon if available
+                if entries[0].AppBundle != "" {
+                    if icon := iconForBundle(entries[0].AppBundle); len(icon) > 0 {
+                        parent.SetIcon(icon)
+                    }
+                }
                 pidItem := parent.AddSubMenuItem("PIDs: "+strings.Join(pidStrs, ", "), "")
                 cmdItem := parent.AddSubMenuItem("Cmd: "+strings.Join(cmdStrs, " | "), "")
                 killItem := parent.AddSubMenuItem("Kill All", "Terminate all processes on this port")

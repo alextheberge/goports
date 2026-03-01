@@ -5,6 +5,7 @@ import (
     "fmt"
     "net"
     "os/exec"
+    "path/filepath"
     "strings"
 )
 
@@ -40,7 +41,24 @@ func bundleIDForPID(pid int32) string {
     if path == "" || !strings.HasPrefix(path, "/") {
         return ""
     }
-    if bid, err := exec.Command("mdls", "-name", "kMDItemCFBundleIdentifier", "-raw", path).Output(); err == nil {
+    // climb until we reach an .app bundle, because mdls on the binary itself
+    // doesn't expose the CFBundleIdentifier.
+    dir := path
+    for {
+        if strings.HasSuffix(dir, ".app") {
+            break
+        }
+        parent := filepath.Dir(dir)
+        if parent == dir {
+            dir = ""
+            break
+        }
+        dir = parent
+    }
+    if dir == "" {
+        return ""
+    }
+    if bid, err := exec.Command("mdls", "-name", "kMDItemCFBundleIdentifier", "-raw", dir).Output(); err == nil {
         s := strings.TrimSpace(string(bid))
         if s != "(null)" {
             return s
