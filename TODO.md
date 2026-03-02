@@ -14,36 +14,50 @@ and implementation effort. Items marked **(high return)** should be tackled firs
    bundleID calls.
 5. ✅ **Context/timeouts on external commands** – wrap `exec.Command` calls with
    contexts so slow `lsof`/`ps` don't hang.
-6. **Cross-platform foundation** –
+6. ✅ **Cross-platform foundation** –
    * abstraction layer (`discoverPorts`) added so platform-specific
      implementations can replace `lsof` in future.
-   * Linux backend currently shells out to `lsof`, providing working CLI
-     support.  A `/proc` parser exists and can be enabled later; it now also
-     attaches PID/name/command-line information natively.
-   * Windows backend now uses the IP Helper API for fully native enumeration
-     of TCP/UDP listeners and retrieves process names via `QueryFullProcessImageName`.
-   * macOS now uses a lightweight `netstat`-based parser with lsof fallback;
-     recent work added a direct `sysctl` implementation that enumerates both
-     IPv4 and IPv6 listeners, plus a `--native`/GUI checkbox to disable lsof
-     entirely (metadata may be omitted).  PID/name lookup is still optional
-     via lsof, and sysctl results are cached; next step is replicating PID
-     lookup natively and adding a Windows counterpart.
-   * platform tagged mains created; non-darwin builds yield CLI-only binary
-     avoiding GUI dependencies.
-   * Next step: implement fully native enumeration on each OS (sysctl,
-     Win32) and remove external command dependencies.
+   * Linux backend now natively parses `/proc/net/*`, inspects `/proc/<pid>/fd`
+     and enriches entries with PIDs and command-lines.  Tests verify the
+     parser and support caching.
+   * Windows backend uses the IP Helper API and `QueryFullProcessImageName` to
+     enumerate TCP/UDP listeners and associated processes; IPv6 support is
+     complete, and a stub ensures non-Windows builds compile.
+   * macOS backend has three paths:
+     * `appsBySysctl` – native sysctl/`libproc` scan with PID/command merge and
+       a 1‑second cache.  A `GOPORTS_FAKE_SYSCTL` env var and tests exercise
+       error conditions.
+     * `appsByNetstat` – lightweight parser used when native calls fail.
+     * `lsof` – fallback that guarantees PID/command info; the GUI/CLI now
+       automatically falls back if native results contain no PIDs.  Users can
+       toggle `--native` / "Use native discovery only" to disable this
+       fallback deliberately.
+   * GUI items now include PID(s) and a truncated command-line in the parent
+     title, and application icons are shown when bundle IDs are known.
+   * Native-only checkbox/flag documented and elaborated in README.  Debug
+     logging (`GOPORTS_DEBUG`) added.
+   * platform-tagged mains created; non-darwin builds produce CLI-only
+     binaries to simplify cross-platform support.
+   * Next step: further harden native paths, implement caching on Linux/Win,
+     and remove external tool dependencies entirely where possible.
 
 ## 2. GUI polish & usability
 
 - ✅ Add search/filter box in menu-bar GUI.
 - ✅ Dark mode support (icon variants) and basic accessibility support.
 - ✅ Notifications per-port toggle with persisted settings.
-- ✅ Preferences pane for refresh interval and protocols to show.
-  *TCP/UDP visibility checkboxes implemented.*
+- ✅ Preferences pane for refresh interval and protocols to show;
+  TCP/UDP visibility checkboxes implemented.
+- ✅ Restore PID/command‑line information and icons in menu titles; add
+  titles to submenu items as well.  Debug logging added for metadata
+  discovery and environment variables allow simulating failures.
 
 ## 3. Developer experience & packaging
 
-- Add unit tests for `ports.AppsByPort` (fake lsof output).
+- Add unit tests for `ports.AppsByPort` (fake lsof output).  Tests now
+  cover sysctl failure and missing-PID fallback logic as well.
+- Add debug helpers (`GOPORTS_DEBUG`, `GOPORTS_FAKE_SYSCTL`) and document
+  them.
 - Extract public library API and document it.
 - Homebrew formula and GitHub Actions release workflow.
 - Sign/notarize macOS bundle in CI.
@@ -54,6 +68,10 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 - Remote host support (SSH).
 - iOS/watchOS companion widget.
 - Real‑time port activity graphs.
+- Consolidate logging/diagnostics across platforms (already added debug
+  helpers but could offer GUI log viewer).
+- Continue reducing/eliminating external command dependencies by finishing
+  native `sysctl`/`/proc`/Win32 implementations and caching on all platforms.
 
 
 > Each section can be broken into issues/PRs. Start by tackling high-return
