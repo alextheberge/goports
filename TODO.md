@@ -71,8 +71,14 @@ and implementation effort. Items marked **(high return)** should be tackled firs
   * first step was adding infrastructure in `internal/ports` to record open/close
     events and expose them via `SubscribeActivity` – this yields a channel of
     `PortActivity` records.
-  * next, define a **sophisticated, robust API** that supports multiple
-    consumers and pluggable transports:
+  * ✅ next, define a **sophisticated, robust API** that supports multiple
+    consumers and pluggable transports (HTTP SSE implementation completed with
+    built‑in minimal web UI; CLI flag added).
+  * ✅ extend the API with optional TLS support, Unix domain socket binding,
+    WebSocket endpoint and an OpenAPI/Swagger description so third-party
+    tools can integrate easily.  Provide a JavaScript client that draws real–
+    time charts using history and live events.  Consider adding CLI modes for
+    plotting in-terminal or exporting CSV.
     1. keep the in‑process channel for callers within the same binary (GUI,
        CLI helpers, tests).
     2. expose optional adapters that deliver events over:

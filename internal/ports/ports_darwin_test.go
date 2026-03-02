@@ -4,8 +4,14 @@
 package ports
 
 import (
+    "bufio"
+    "encoding/json"
     "fmt"
+    "io"
     "net"
+    "net/http"
+    "os"
+    "strings"
     "testing"
     "time"
 )
@@ -269,5 +275,173 @@ func TestActivityNotifications(t *testing.T) {
     evt = <-ch
     if evt.Open {
         t.Fatalf("expected close event, got %+v", evt)
+    }
+}
+
+func TestHTTPEventServer(t *testing.T) {
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("failed to start event server: %v", err)
+    }
+    defer shutdown()
+
+    // connect to the server
+    resp, err := http.Get("http://" + addr + "/events")
+    if err != nil {
+        t.Fatalf("http connect failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    // publish an activity and read the SSE line
+    go func() {
+        diffAndPublish(map[PortKey][]PortEntry{{Protocol: "tcp", Port: 55}: {{}}})
+    }()
+
+    reader := bufio.NewReader(resp.Body)
+    // read one SSE record (data: line)
+    line, err := reader.ReadString('\n')
+    if err != nil {
+        t.Fatalf("read line failed: %v", err)
+    }
+    if !strings.HasPrefix(line, "data:") {
+        t.Fatalf("expected data prefix, got: %s", line)
+    }
+    var evt PortActivity
+    if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &evt); err != nil {
+        t.Fatalf("json unmarshal: %v", err)
+    }
+    if evt.Key.Port != 55 || evt.Key.Protocol != "tcp" || !evt.Open {
+        t.Fatalf("unexpected event: %+v", evt)
+    }
+}
+
+func TestHistoryEndpoint(t *testing.T) {
+    lastPorts = nil
+    clearHistory()
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("start server: %v", err)
+    }
+    defer shutdown()
+
+    // generate a couple of events with known timestamps
+    diffAndPublish(map[PortKey][]PortEntry{{Protocol: "tcp", Port: 101}: {{}}})
+    time.Sleep(10 * time.Millisecond)
+    diffAndPublish(map[PortKey][]PortEntry{{Protocol: "tcp", Port: 102}: {{}}})
+
+    // fetch history with limit=1; check that we receive at least one event
+    res, err := http.Get("http://" + addr + "/history?limit=1")
+    if err != nil {
+        t.Fatalf("get history: %v", err)
+    }
+    var evts []PortActivity
+    json.NewDecoder(res.Body).Decode(&evts)
+    res.Body.Close()
+    if len(evts) != 1 {
+        t.Fatalf("unexpected limited history: %+v", evts)
+    }
+
+    // test filtering by protocol
+    res, _ = http.Get("http://" + addr + "/history?protocol=udp")
+    json.NewDecoder(res.Body).Decode(&evts)
+    res.Body.Close()
+    if len(evts) != 0 {
+        t.Fatalf("expected no udp events, got %+v", evts)
+    }
+
+    // test since parameter returns subset
+    since := time.Now().Add(-1 * time.Second).Format(time.RFC3339)
+    res, _ = http.Get("http://" + addr + "/history?since=" + since + "&limit=10")
+    json.NewDecoder(res.Body).Decode(&evts)
+    res.Body.Close()
+    if len(evts) < 2 {
+        t.Fatalf("expected at least two events, got %+v", evts)
+    }
+}
+
+func TestHTTPAuth(t *testing.T) {
+    // set token
+    os.Setenv("GOPORTS_API_TOKEN", "secret")
+    defer os.Unsetenv("GOPORTS_API_TOKEN")
+
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("start server: %v", err)
+    }
+    defer shutdown()
+
+    // unauthenticated request should 401
+    res, _ := http.Get("http://" + addr + "/history")
+    if res.StatusCode != http.StatusUnauthorized {
+        t.Fatalf("expected 401, got %d", res.StatusCode)
+    }
+    // with token query
+    res, _ = http.Get("http://" + addr + "/history?token=secret")
+    if res.StatusCode != http.StatusOK {
+        t.Fatalf("expected 200 with token, got %d", res.StatusCode)
+    }
+    // with bearer header
+    req, _ := http.NewRequest("GET", "http://"+addr+"/history", nil)
+    req.Header.Set("Authorization", "Bearer secret")
+    res, _ = http.DefaultClient.Do(req)
+    if res.StatusCode != http.StatusOK {
+        t.Fatalf("expected 200 with header, got %d", res.StatusCode)
+    }
+}
+
+func TestOpenAPISpec(t *testing.T) {
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("start server: %v", err)
+    }
+    defer shutdown()
+
+    res, err := http.Get("http://" + addr + "/openapi.json")
+    if err != nil {
+        t.Fatalf("get openapi: %v", err)
+    }
+    defer res.Body.Close()
+    if res.StatusCode != http.StatusOK {
+        t.Fatalf("expected 200, got %d", res.StatusCode)
+    }
+    var spec map[string]interface{}
+    if err := json.NewDecoder(res.Body).Decode(&spec); err != nil {
+        t.Fatalf("decode spec: %v", err)
+    }
+    if spec["openapi"] != "3.0.0" {
+        t.Fatalf("unexpected openapi version: %v", spec["openapi"])
+    }
+    // ensure components.schemas.PortActivity exists
+    comps, ok := spec["components"].(map[string]interface{})
+    if !ok {
+        t.Fatalf("components missing")
+    }
+    schemas, ok := comps["schemas"].(map[string]interface{})
+    if !ok {
+        t.Fatalf("schemas missing")
+    }
+    if _, ok := schemas["PortActivity"]; !ok {
+        t.Fatalf("PortActivity schema missing")
+    }
+}
+
+func TestSwaggerUI(t *testing.T) {
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("start server: %v", err)
+    }
+    defer shutdown()
+
+    res, err := http.Get("http://" + addr + "/swagger")
+    if err != nil {
+        t.Fatalf("get swagger: %v", err)
+    }
+    defer res.Body.Close()
+    if res.StatusCode != http.StatusOK {
+        t.Fatalf("expected 200, got %d", res.StatusCode)
+    }
+    body, _ := io.ReadAll(res.Body)
+    if !strings.Contains(string(body), "swagger-ui") {
+        t.Fatalf("swagger page missing expected content")
     }
 }

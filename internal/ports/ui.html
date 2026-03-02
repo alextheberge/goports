@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>goports Activity</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    #log { white-space: pre-wrap; background: #f0f0f0; padding: 1rem; height: 70vh; overflow: auto; }
+  </style>
+</head>
+<body>
+<h1>goports Activity Stream</h1>
+<div id="status">connecting…</div>
+<canvas id="chart" width="600" height="200"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const ctx = document.getElementById('chart').getContext('2d');
+  const labels = [];
+  const data = {
+    labels: labels,
+    datasets: [{
+      label: 'open ports',
+      data: [],
+      borderColor: 'rgb(75, 192, 192)',
+      fill: false,
+    }]
+  };
+  const config = {
+    type: 'line',
+    data: data,
+    options: { responsive: true, scales: { x: { type: 'time', time: { unit: 'second' } } } }
+  };
+  const myChart = new Chart(ctx, config);
+
+  const evtSource = new EventSource('/events');
+  const status = document.getElementById('status');
+  evtSource.onopen = function() { status.textContent = 'connected'; };
+  evtSource.onerror = function() { status.textContent = 'error'; };
+  evtSource.onmessage = function(e) {
+    const obj = JSON.parse(e.data);
+    const ts = new Date(obj.Timestamp);
+    const last = data.datasets[0].data;
+    let count = last.length > 0 ? last[last.length-1] : 0;
+    count += obj.Open ? 1 : -1;
+    labels.push(ts);
+    data.datasets[0].data.push(count);
+    if (labels.length > 100) {
+      labels.shift(); data.datasets[0].data.shift();
+    }
+    myChart.update();
+  };
+</script>
+</body>
+</html>

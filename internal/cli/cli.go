@@ -16,6 +16,7 @@ import (
     "syscall"
     "time"
 
+    "github.com/guptarohit/asciigraph"
     "github.com/olekukonko/tablewriter"
     "github.com/gosuri/uilive"
 
@@ -33,6 +34,8 @@ func Run(args []string) {
     var openPort int
     var jsonOut bool
     var csvOut bool
+    var exportHist bool
+    var tui bool
     var filterProto string
     var filterName string
     var filterBundle string
@@ -53,13 +56,47 @@ func Run(args []string) {
     fs.StringVar(&filterFamily, "family", "", "only show entries with address family IPv4 or IPv6")
     fs.BoolVar(&jsonOut, "json", false, "output structured JSON")
     fs.BoolVar(&csvOut, "csv", false, "output CSV (PROTO,PORT,HOST,...)")
+    fs.BoolVar(&exportHist, "export", false, "dump historical events as JSON and exit")
+    fs.BoolVar(&tui, "tui", false, "show a simple ASCII graph of open ports in the terminal")
     fs.BoolVar(&nativeOnly, "native", false, "do not invoke lsof; use native discovery only")
+    var httpPort int
+    fs.IntVar(&httpPort, "http-port", 0, "if nonzero, start an HTTP server exposing /events on this port")
+    var specFlag bool
+    fs.BoolVar(&specFlag, "spec", false, "print the OpenAPI JSON and exit")
 
     _ = fs.Parse(args)
 
     // apply the native-only flag to the discovery package
     if nativeOnly {
         ports.SetNativeOnly(true)
+    }
+
+    // print spec and exit before starting server or doing other work
+    if specFlag {
+        fmt.Println(ports.OpenAPISpec())
+        return
+    }
+
+    // optionally start the event HTTP server
+    if httpPort > 0 {
+        addr := fmt.Sprintf(":%d", httpPort)
+        _, cleanup, err := ports.StartEventServer(addr)
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "failed to start event server on %s: %v\n", addr, err)
+            os.Exit(1)
+        }
+        if cleanup != nil {
+            defer cleanup()
+        }
+    }
+
+    // export history if requested
+    if exportHist {
+        hist := ports.History(time.Time{}, 0)
+        enc := json.NewEncoder(os.Stdout)
+        enc.SetIndent("", "  ")
+        _ = enc.Encode(hist)
+        return
     }
 
     // kill actions take precedence.  we support port, name, and bundle
@@ -104,6 +141,11 @@ func Run(args []string) {
         return
     }
 
+    if tui {
+        runTUI()
+        return
+    }
+
     render := func(w io.Writer, data map[ports.PortKey][]ports.PortEntry) {
         switch {
         case jsonOut:
@@ -144,6 +186,20 @@ func Run(args []string) {
     data := ports.AppsByPort()
     data = applyFilters(data, filterProto, filterName, filterBundle, filterFamily)
     render(os.Stdout, data)
+}
+
+func runTUI() {
+    var counts []float64
+    for {
+        data := ports.AppsByPort()
+        counts = append(counts, float64(len(data)))
+        if len(counts) > 50 {
+            counts = counts[len(counts)-50:]
+        }
+        fmt.Print("\033[H\033[2J") // clear screen
+        fmt.Println(asciigraph.Plot(counts, asciigraph.Height(10), asciigraph.Caption("open ports")))
+        time.Sleep(5 * time.Second)
+    }
 }
 
 func renderTable(w io.Writer, data map[ports.PortKey][]ports.PortEntry) {

@@ -1,7 +1,10 @@
 package cli
 
 import (
+    "io"
+    "os"
     "reflect"
+    "strings"
     "testing"
 
     "github.com/user/goports/internal/ports"
@@ -47,5 +50,28 @@ func TestNativeFlagSetsPortPackage(t *testing.T) {
     Run([]string{"--native"})
     if !ports.NativeOnlyEnabled() {
         t.Errorf("expected nativeOnly to be set by CLI flag")
+    }
+}
+
+func TestExportAndTUIFlags(t *testing.T) {
+    // just ensure parsing of flags doesn't panic; actual behavior is difficult
+    // to verify in unit tests without capturing stdout or starting a TUI.
+    Run([]string{"--export"})
+}
+
+func TestSpecFlag(t *testing.T) {
+    // capture stdout
+    old := os.Stdout
+    r, w, _ := os.Pipe()
+    os.Stdout = w
+    Run([]string{"--spec"})
+    w.Close()
+    var buf strings.Builder
+    io.Copy(&buf, r)
+    os.Stdout = old
+
+    out := buf.String()
+    if !strings.Contains(out, "openapi") {
+        t.Errorf("expected spec output to contain 'openapi', got %q", out)
     }
 }

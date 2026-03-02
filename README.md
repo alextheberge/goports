@@ -45,8 +45,11 @@ command-line interface.  Highlights:
 - **Process control** — terminate listeners directly from the menu or
   with `--kill`.
 - **Activity events** — the internal API now publishes open/close events for
-  ports; future GUI/CLI enhancements can consume this stream to display
-  realtime activity graphs.
+  ports; consumers can `SubscribeActivity` in-process or connect over HTTP.
+  The binary can start a small local web server (`--http-port`) exposing
+  `/events` (SSE) and a basic web UI that shows a live log of opens/closes.
+  External applications may also consume the SSE stream for their own
+  graphs or dashboards.
 - **Browser integration** — `--open` or the GUI menu item launches
   `http://localhost:<port>` in the default browser.
 - **Lightweight Go binary** — single executable produced with `go build`;
@@ -160,8 +163,70 @@ applied.)
 --family IPv4|IPv6    # filter by address family
 --json                # output JSON
 --csv                 # output CSV
+--spec                # print OpenAPI spec and exit
 --open PORT           # open http://localhost:PORT in browser
 ```
+
+#### HTTP API
+
+When the CLI is started with `--http-port` (or via the GUI "Open in
+Browser" action), a tiny HTTP server listens on `localhost`.  It
+supports:
+
+* `GET /events` – a continuous stream of port open/close events.  By
+  default it uses Server-Sent Events (SSE); clients may upgrade to a
+  WebSocket by supplying the `Upgrade: websocket` header.  The stream
+  optionally accepts `since` (RFC3339 timestamp) and `token` query
+  parameters for historical replay and authentication.
+* `GET /history` – a JSON array of recent events whose history is kept in
+  memory (size configurable at compile time).  Supports filtering by
+  `protocol`, `port`, `since` and `limit`.  Authentication is enforced via
+  the `GOPORTS_API_TOKEN` environment variable; supply the token either
+  as a `token` query parameter or as a `Bearer` Authorization header.
+* `GET /openapi.json` – a machine-readable OpenAPI 3.0 schema describing
+  the above endpoints, including parameter types and response models.
+  Third-party tools (Swagger UI, curl, etc.) can consume this spec.
+
+The server honors `GOPORTS_TLS_CERT`/`GOPORTS_TLS_KEY` if present and will
+fall back to generating a short-lived self-signed certificate if
+`--http-tls` is requested but no files are provided.  It also supports
+listen addresses prefixed with `unix:` to bind a UNIX domain socket.
+
+The embedded web UI served at `/` displays a simple Chart.js graph of
+port activity and can be used as an example client.
+
+##### Example clients
+
+Fetch the spec with curl:
+
+```sh
+curl http://localhost:<port>/openapi.json | jq
+```
+
+Stream events using SSE from bash:
+
+```sh
+curl -N "http://localhost:<port>/events?since=$(date -u +%FT%TZ)"
+```
+
+A minimal JavaScript consumer:
+
+```html
+<script>
+let url = "/events";
+let evt = new EventSource(url);
+evt.onmessage = e => console.log("activity", JSON.parse(e.data));
+</script>
+```
+
+You can also view the API interactively by opening `/swagger` in your
+browser; it renders the spec with Swagger UI.
+
+
+#### GUI Settings
+
+When running in GUI mode a "Settings" submenu is available.  In addition to
+login items and interval controls you can now:
 
 #### GUI Settings
 
@@ -233,6 +298,11 @@ These settings are stored in `~/.config/goports/settings.json`.
 * `--signal <name>` — specify signal to use for kills (TERM, INT, KILL,
   etc.).
 * `--open <port>` — open `http://localhost:<port>` in the default browser.
+* `--http-port <port>` — if nonzero, start a local HTTP server on the given
+  port.  In addition to streaming activity events at `/events`, the server
+  serves a minimal web UI on `/` that displays a scrolling log of changes.  A
+  browser will automatically update as ports open and close; this makes it
+  easy to view activity graphically without any external tooling.
 
 Examples:
 
