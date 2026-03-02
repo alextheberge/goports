@@ -10,6 +10,88 @@ package ports
 #include <netinet/in_pcb.h>
 #include <netinet/tcp_var.h>
 #include <arpa/inet.h>
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <string.h>
+
+// procentry represents a listening socket associated with a process.  It is
+// analogous to the goentry struct used for sysctl results, but carries a PID
+// so we can match entries to processes without external tools.
+struct procentry {
+    pid_t pid;
+    int proto;
+    int port;
+    uint32_t ip4;
+    unsigned char ip6[16];
+};
+
+// gather a list of all socket endpoints owned by all processes.  The caller
+// must free the returned array with free().  The routine is intentionally
+// robust: errors scanning one process are ignored so that the complete set of
+// sockets can still be returned.
+int get_proc_sockets(struct procentry **out, int *count) {
+    int bufbytes = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
+    if (bufbytes <= 0) {
+        return -1;
+    }
+    pid_t *pids = malloc(bufbytes);
+    if (!pids) return -1;
+    int ret = proc_listpids(PROC_ALL_PIDS, 0, pids, bufbytes);
+    if (ret <= 0) {
+        free(pids);
+        return -1;
+    }
+    int npids = ret / sizeof(pid_t);
+    int cap = 256;
+    *count = 0;
+    *out = malloc(cap * sizeof(struct procentry));
+    for (int i = 0; i < npids; i++) {
+        pid_t pid = pids[i];
+        if (pid == 0) continue;
+        int fdbuf = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, NULL, 0);
+        if (fdbuf <= 0) continue;
+        struct proc_fdinfo *fds = malloc(fdbuf);
+        if (!fds) continue;
+        if (proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds, fdbuf) <= 0) {
+            free(fds);
+            continue;
+        }
+        int nfds = fdbuf / sizeof(struct proc_fdinfo);
+        for (int j = 0; j < nfds; j++) {
+            if (fds[j].proc_fdtype != PROX_FDTYPE_SOCKET) continue;
+            struct socket_fdinfo sfi;
+            if (proc_pidfdinfo(pid, fds[j].proc_fd, PROC_PIDFDSOCKETINFO, &sfi, sizeof(sfi)) <= 0) {
+                continue;
+            }
+            struct in_sockinfo *ini = &sfi.psi.soi_proto.pri_in;
+            int port = ntohs((uint16_t)ini->insi_lport);
+            if (port == 0) continue;
+            int proto = sfi.psi.soi_protocol;
+            uint32_t ip4 = 0;
+            unsigned char ip6[16] = {0};
+            if (ini->insi_vflag & INI_IPV6) {
+                memcpy(ip6, &ini->insi_laddr.ina_6, sizeof(ip6));
+            } else {
+                ip4 = ini->insi_laddr.ina_46.i46a_addr4.s_addr;
+            }
+            if (*count >= cap) {
+                cap *= 2;
+                *out = realloc(*out, cap * sizeof(struct procentry));
+            }
+            (*out)[*count].pid = pid;
+            (*out)[*count].proto = proto;
+            (*out)[*count].port = port;
+            (*out)[*count].ip4 = ip4;
+            memcpy((*out)[*count].ip6, ip6, sizeof(ip6));
+            (*count)++;
+        }
+        free(fds);
+    }
+    free(pids);
+    return 0;
+}
 #include <string.h>
 
 struct goentry { int proto; int port; uint32_t ip4; unsigned char ip6[16]; };
@@ -103,6 +185,101 @@ func hostAndFamily(ip4 uint32, ip6 [16]byte) (string, string) {
     return "", ""
 }
 
+// procEntry mirrors the C struct used by get_proc_sockets.  It is used to
+// communicate the results of scanning all processes for open sockets.
+type procEntry struct {
+    Pid   int32
+    Proto int
+    Port  int
+    IP4   uint32
+    IP6   [16]byte
+}
+
+// collectProcSockets invokes the C helper to enumerate sockets owned by each
+// process.  The returned slice must not be retained across future calls; the
+// C memory is freed immediately.
+func collectProcSockets() ([]procEntry, error) {
+    var centries *C.struct_procentry
+    var cnt C.int
+    if C.get_proc_sockets(&centries, &cnt) != 0 {
+        return nil, fmt.Errorf("get_proc_sockets failed")
+    }
+    defer C.free(unsafe.Pointer(centries))
+
+    slice := (*[1 << 20]C.struct_procentry)(unsafe.Pointer(centries))[:cnt:cnt]
+    out := make([]procEntry, 0, cnt)
+    for _, e := range slice {
+        var ip6 [16]byte
+        for i := 0; i < 16; i++ {
+            ip6[i] = byte(e.ip6[i])
+        }
+        out = append(out, procEntry{
+            Pid:   int32(e.pid),
+            Proto: int(e.proto),
+            Port:  int(e.port),
+            IP4:   uint32(e.ip4),
+            IP6:   ip6,
+        })
+    }
+    return out, nil
+}
+
+// protoName converts a numeric protocol value into the string used by
+// PortKey.  Values are taken from the kernel (IPPROTO_TCP, IPPROTO_UDP, etc.).
+func protoName(p int) string {
+    switch p {
+    case 6:
+        return "tcp"
+    case 17:
+        return "udp"
+    default:
+        return fmt.Sprintf("ip%d", p)
+    }
+}
+
+// procName returns the short name of a process using libproc's proc_name.
+// cmdline attempts to use proc_pidpath to obtain the full executable path.
+func procName(pid int32) string {
+    var buf [256]C.char
+    if C.proc_name(C.int(pid), unsafe.Pointer(&buf[0]), C.uint32_t(len(buf))) <= 0 {
+        return ""
+    }
+    return C.GoString(&buf[0])
+}
+
+func procPath(pid int32) string {
+    var buf [1024]C.char
+    if C.proc_pidpath(C.int(pid), unsafe.Pointer(&buf[0]), C.uint32_t(len(buf))) <= 0 {
+        return ""
+    }
+    return C.GoString(&buf[0])
+}
+
+// mergeProcMetadata walks the sockets owned by each process and merges
+// PID/name/command-line information into the provided result map.  Only
+// entries that already exist in the map (typically discovered via sysctl)
+// are updated; everything else is ignored.
+func mergeProcMetadata(result map[PortKey][]PortEntry) {
+    entries, err := collectProcSockets()
+    if err != nil || len(entries) == 0 {
+        return
+    }
+    for _, pe := range entries {
+        key := PortKey{Protocol: protoName(pe.Proto), Port: pe.Port}
+        if ents, ok := result[key]; ok {
+            for i := range ents {
+                if ents[i].Pid == 0 {
+                    ents[i].Pid = pe.Pid
+                    ents[i].Name = procName(pe.Pid)
+                    ents[i].Cmdline = procPath(pe.Pid)
+                    // bundle lookup may still use ps/mdls but that's fine
+                    ents[i].AppBundle = bundleIDFunc(pe.Pid)
+                }
+            }
+        }
+    }
+}
+
 // appsByNetstat parses the output of `netstat -an` for TCP and UDP
 // listeners.  This method is lightweight but does not know about process
 // ownership.
@@ -140,7 +317,12 @@ func appsBySysctl() (map[PortKey][]PortEntry, error) {
         result[key] = append(result[key], entry)
     }
 
-    // if nativeOnly is requested we don't attempt to merge metadata.
+    // always attempt to enrich with PID/name/cmdline using native APIs.  We
+    // do this unconditionally because it requires no external binary.
+    mergeProcMetadata(result)
+
+    // if nativeOnly is requested we don't fall back to lsof, otherwise merge
+    // any additional metadata it provides (might include duplicate entries).
     if !nativeOnly {
         if out, err := runCmd("lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-iUDP"); err == nil {
             mergeLsofMeta(result, out)

@@ -112,6 +112,49 @@ func TestSysctlIPv6(t *testing.T) {
     }
 }
 
+func TestProcMetadata(t *testing.T) {
+    ln, err := net.Listen("tcp", "127.0.0.1:0")
+    if err != nil {
+        t.Skipf("unable to listen: %v", err)
+    }
+    defer ln.Close()
+    port := ln.Addr().(*net.TCPAddr).Port
+
+    m := make(map[PortKey][]PortEntry)
+    key := PortKey{Protocol: "tcp", Port: port}
+    m[key] = []PortEntry{{}}
+
+    mergeProcMetadata(m)
+    if len(m[key]) == 0 || m[key][0].Pid == 0 {
+        t.Fatalf("proc metadata not populated: %v", m[key])
+    }
+    if m[key][0].Name == "" {
+        t.Fatalf("expected process name, got empty")
+    }
+    if m[key][0].Cmdline == "" {
+        t.Fatalf("expected cmdline, got empty")
+    }
+}
+
+func TestAppsBySysctlNativePid(t *testing.T) {
+    SetNativeOnly(true)
+    m, err := appsBySysctl()
+    if err != nil {
+        t.Skipf("appsBySysctl failed: %v", err)
+    }
+    // ensure at least one PID is populated if map non-empty
+    for _, list := range m {
+        for _, e := range list {
+            if e.Pid != 0 {
+                return
+            }
+        }
+    }
+    if len(m) > 0 {
+        t.Fatalf("expected some entries with pid under nativeOnly, got %v", m)
+    }
+}
+
 func TestMergeLsofMeta(t *testing.T) {
     // create a fake native result with one entry
     key := PortKey{Protocol: "tcp", Port: 8080}

@@ -109,10 +109,13 @@ archive produced by `make dist`.
 
 `goports` enumerates listening sockets via a platform-specific engine.
 On macOS the implementation now reads listener information via the
-`sysctl` interface (`net.inet.{tcp,udp}.pcblist`), eliminating the need for
-`netstat` or `lsof`.  Netstat is only consulted as a fallback if the syscall
-fails.  On Linux we similarly default to `lsof` but have a `/proc` parser
-available; that parser could be made primary.  Windows support is planned.
+`sysctl` interface (`net.inet.{tcp,udp}.pcblist`) and subsequently scans
+process file descriptors via `libproc`, so PIDs, names and command-line
+paths are obtained without ever spawning `netstat`/`lsof`.  Netstat is only
+consulted as a fallback if the syscall fails.  On Linux we likewise parse
+`/proc/net/*` and then inspect `/proc/<pid>/fd` entries to map sockets back to
+processes, populating PID, command line and executable name.  The `lsof`
+command remains available as a last resort.  Windows support is planned.
 The code is structured so that fully native backends (e.g. Win32 APIs) may
 replace the external command dependencies later without touching rendering
 logic.
@@ -164,8 +167,9 @@ login items and interval controls you can now:
 * **Use native discovery only** checkbox – when checked the GUI will refrain
   from invoking `lsof`/other helpers and rely purely on built-in APIs.  The
   implementation reads listener state via sysctl (IPv4 and IPv6) and
-  netstat; no external binaries are executed.  This can reduce external
-  dependencies at the cost of PID/command-line metadata.
+  netstat, then scans process file descriptors via libproc to populate PIDs,
+  process names and executable paths.  No external binaries are executed,
+  yet metadata remains richly populated.
 * The menu bar icon automatically switches between light and dark variants
   depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
@@ -184,7 +188,7 @@ The following preferences are persisted across launches:
 These settings are stored in `~/.config/goports/settings.json`.
 
 * `--gui` — launch the menu‑bar GUI (default when no flags are provided).
-* `--native` — avoid calling external tools (like `lsof`); use built-in platform APIs only.  This reduces dependencies but may omit some metadata such as PID/command line.
+* `--native` — avoid calling external tools (like `lsof`); use built-in platform APIs only.  The engine now scans process fds via libproc and sysctl, so PIDs, names and even executable paths are obtained natively (IPv4/IPv6).  This removes all external dependencies while still providing rich metadata on macOS.
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
 * `--kill <port>` — terminate all processes listening on `<port>`
   (any protocol).

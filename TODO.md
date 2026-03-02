@@ -18,8 +18,9 @@ and implementation effort. Items marked **(high return)** should be tackled firs
    * abstraction layer (`discoverPorts`) added so platform-specific
      implementations can replace `lsof` in future.
    * Linux backend currently shells out to `lsof`, providing working CLI
-     support.  A `/proc` parser exists and can be enabled later.  Windows
-     still pending.
+     support.  A `/proc` parser exists and can be enabled later; it now also
+     attaches PID/name/command-line information natively.  Windows still
+     pending.
    * macOS now uses a lightweight `netstat`-based parser with lsof fallback;
      recent work added a direct `sysctl` implementation that enumerates both
      IPv4 and IPv6 listeners, plus a `--native`/GUI checkbox to disable lsof

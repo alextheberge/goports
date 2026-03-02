@@ -221,6 +221,17 @@ func AppsByPort() map[PortKey][]PortEntry {
         // fall through to lsof if both native attempts failed
     }
 
+    // linux also has a native path using /proc; appsByProc is defined in
+    // ports_linux_impl.go and will only exist when building for linux.
+    if runtime.GOOS == "linux" {
+        if m, err := appsByProc(); err == nil && len(m) > 0 {
+            return m
+        }
+        if nativeOnly {
+            return portsMap
+        }
+    }
+
     out, err := discoverPorts()
     if err != nil {
         return portsMap

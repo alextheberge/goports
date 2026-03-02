@@ -11,27 +11,15 @@ import (
     "path/filepath"
     "strconv"
     "strings"
+    "testing"
+    "time"
 )
 
-// AppsByPort is a Linux-specific implementation that parses /proc/net/*
+// appsByProc is a Linux-specific helper that parses /proc/net/*
 // directly, avoiding a dependency on lsof.  It returns a map similar to the
 // default implementation; pid and Name fields may be empty if the inode lookup
-// fails.  If an error occurs during the native scan we fall back to the
-// generic lsof-based discovery.
-func AppsByPort() map[PortKey][]PortEntry {
-    if m, err := appsByProc(); err == nil && len(m) > 0 {
-        return m
-    }
-    // fallback to earlier behavior
-    portsMap := make(map[PortKey][]PortEntry)
-    out, err := discoverPorts()
-    if err != nil {
-        return portsMap
-    }
-    return parseLsof(out)
-}
-
-// appsByProc tries to enumerate listening sockets via /proc.
+// fails.  When built for linux the generic AppsByPort in ports.go will call
+// this helper before falling back to the shell-out path.
 func appsByProc() (map[PortKey][]PortEntry, error) {
     inodeToPid := make(map[string]int32)
     // build inode->pid map by scanning /proc/[0-9]*/fd
@@ -108,7 +96,7 @@ func appsByProc() (map[PortKey][]PortEntry, error) {
             if err != nil || portVal == 0 {
                 continue
             }
-            entry := PortEntry{Protocol: file.proto, Port: 0, Family: "IPv4"}
+            entry := PortEntry{Protocol: file.proto, Family: "IPv4"}
             portKey := PortKey{Protocol: file.proto, Port: int(portVal)}
             if strings.Contains(file.path, "6") {
                 entry.Family = "IPv6"
@@ -120,6 +108,10 @@ func appsByProc() (map[PortKey][]PortEntry, error) {
                 // try to load process name from /proc/<pid>/comm
                 if name, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid)); err == nil {
                     entry.Name = strings.TrimSpace(string(name))
+                }
+                // also attempt to read full command line (nul-separated)
+                if cmd, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+                    entry.Cmdline = strings.ReplaceAll(strings.TrimRight(string(cmd), "\x00"), "\x00", " ")
                 }
             }
 
@@ -135,4 +127,39 @@ func appsByProc() (map[PortKey][]PortEntry, error) {
         f.Close()
     }
     return result, nil
+}
+// The following test exercises appsByProc to ensure PID and command-line
+// information are attached.  It opens a temporary listener and looks for it in
+// the map.
+
+func TestAppsByProcMetadata(t *testing.T) {
+    ln, err := net.Listen("tcp4", "127.0.0.1:0")
+    if err != nil {
+        t.Skipf("unable to listen: %v", err)
+    }
+    defer ln.Close()
+    port := ln.Addr().(*net.TCPAddr).Port
+    time.Sleep(100 * time.Millisecond)
+
+    m, err := appsByProc()
+    if err != nil {
+        t.Skipf("appsByProc failed: %v", err)
+    }
+    found := false
+    for k, ents := range m {
+        if k.Protocol == "tcp" && k.Port == port {
+            for _, e := range ents {
+                if e.Pid != 0 && e.Cmdline != "" {
+                    found = true
+                    break
+                }
+            }
+        }
+        if found {
+            break
+        }
+    }
+    if !found {
+        t.Fatalf("expected metadata for %d, got %v", port, m)
+    }
 }

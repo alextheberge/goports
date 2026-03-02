@@ -3,7 +3,6 @@
 
 package ports
 
-import "errors"
 
 // discoverPorts for Linux currently shells out to lsof.  This avoids the
 // need to replicate /proc parsing logic while still providing working
