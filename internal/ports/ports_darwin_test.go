@@ -387,6 +387,16 @@ func TestHTTPAuth(t *testing.T) {
     if res.StatusCode != http.StatusOK {
         t.Fatalf("expected 200 with header, got %d", res.StatusCode)
     }
+
+    // reset should also require auth
+    res, _ = http.Post("http://"+addr+"/history/reset", "application/json", nil)
+    if res.StatusCode != http.StatusUnauthorized {
+        t.Fatalf("expected 401 for unauthorized reset, got %d", res.StatusCode)
+    }
+    res, _ = http.Post("http://"+addr+"/history/reset?token=secret", "application/json", nil)
+    if res.StatusCode != http.StatusNoContent {
+        t.Fatalf("expected 204 with token, got %d", res.StatusCode)
+    }
 }
 
 func TestOpenAPISpec(t *testing.T) {
@@ -423,6 +433,17 @@ func TestOpenAPISpec(t *testing.T) {
     if _, ok := schemas["PortActivity"]; !ok {
         t.Fatalf("PortActivity schema missing")
     }
+    // ensure reset and ports endpoints described
+    paths, ok := spec["paths"].(map[string]interface{})
+    if !ok {
+        t.Fatalf("paths missing")
+    }
+    if _, ok := paths["/history/reset"]; !ok {
+        t.Fatalf("/history/reset not described in spec")
+    }
+    if _, ok := paths["/ports"]; !ok {
+        t.Fatalf("/ports endpoint missing from spec")
+    }
 }
 
 func TestSwaggerUI(t *testing.T) {
@@ -443,5 +464,62 @@ func TestSwaggerUI(t *testing.T) {
     body, _ := io.ReadAll(res.Body)
     if !strings.Contains(string(body), "swagger-ui") {
         t.Fatalf("swagger page missing expected content")
+    }
+}
+
+func TestHistoryReset(t *testing.T) {
+    lastPorts = nil
+    clearHistory()
+    addr, shutdown, err := startTestServer()
+    if err != nil {
+        t.Fatalf("start server: %v", err)
+    }
+    defer shutdown()
+
+    // seed some history
+    diffAndPublish(map[PortKey][]PortEntry{{Protocol: "tcp", Port: 600}: {{}}})
+    // reset buffer via POST
+    res, err := http.Post("http://"+addr+"/history/reset", "application/json", nil)
+    if err != nil {
+        t.Fatalf("post reset: %v", err)
+    }
+    if res.StatusCode != http.StatusNoContent {
+        t.Fatalf("expected 204, got %d", res.StatusCode)
+    }
+    // verify empty
+    res, err = http.Get("http://" + addr + "/history")
+    if err != nil {
+        t.Fatalf("get history: %v", err)
+    }
+    var evts []PortActivity
+    json.NewDecoder(res.Body).Decode(&evts)
+    res.Body.Close()
+    if len(evts) != 0 {
+        t.Fatalf("expected empty history after reset, got %+v", evts)
+    }
+
+    // status endpoint should respond with an integer value
+    res, err = http.Get("http://" + addr + "/status")
+    if err != nil {
+        t.Fatalf("get status: %v", err)
+    }
+    var st map[string]int
+    json.NewDecoder(res.Body).Decode(&st)
+    res.Body.Close()
+    if _, ok := st["open"]; !ok {
+        t.Fatalf("status response missing 'open' key: %v", st)
+    }
+    // ports snapshot should return valid JSON (contents vary by system)
+    res, err = http.Get("http://" + addr + "/ports")
+    if err != nil {
+        t.Fatalf("get ports: %v", err)
+    }
+    var list []map[string]interface{}
+    if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+        t.Fatalf("decode ports: %v", err)
+    }
+    res.Body.Close()
+    if list == nil {
+        t.Fatalf("expected array, got nil")
     }
 }

@@ -178,6 +178,9 @@ supports:
   WebSocket by supplying the `Upgrade: websocket` header.  The stream
   optionally accepts `since` (RFC3339 timestamp) and `token` query
   parameters for historical replay and authentication.
+* `GET /status` – return a simple JSON object containing
+  the current number of open ports (e.g. `{ "open": 5 }`).  This is
+  useful for initializing dashboards.
 * `GET /history` – a JSON array of recent events whose history is kept in
   memory (size configurable at compile time).  Supports filtering by
   `protocol`, `port`, `since` and `limit`.  Authentication is enforced via
@@ -193,7 +196,16 @@ fall back to generating a short-lived self-signed certificate if
 listen addresses prefixed with `unix:` to bind a UNIX domain socket.
 
 The embedded web UI served at `/` displays a simple Chart.js graph of
-port activity and can be used as an example client.
+port activity and can be used as an example client.  The page is lightly
+styled with Tailwind CSS for a cleaner look.  On startup it first queries
+`/status` for the current open‑port count, then replays any recent history;
+this ensures the chart always has a sensible baseline even if no ports have
+opened or closed yet.  A second panel shows a live snapshot of all listening
+ports and associated metadata (PID, command line, bundle identifier) drawn
+from the `/ports` endpoint.  The snapshot is refreshed whenever an open/close
+event arrives.  The page updates in real time, and controls let you **reset
+the stored history** or **download the entire buffer as JSON** for offline
+analysis.
 
 ##### Example clients
 
@@ -300,9 +312,13 @@ These settings are stored in `~/.config/goports/settings.json`.
 * `--open <port>` — open `http://localhost:<port>` in the default browser.
 * `--http-port <port>` — if nonzero, start a local HTTP server on the given
   port.  In addition to streaming activity events at `/events`, the server
-  serves a minimal web UI on `/` that displays a scrolling log of changes.  A
-  browser will automatically update as ports open and close; this makes it
-  easy to view activity graphically without any external tooling.
+  serves a minimal web UI on `/` that displays a scrolling log of changes and
+  a live count graph.  The page loads recent history on startup and provides
+  buttons to reset the stored history or download it as JSON for offline
+  analysis.  A browser will automatically update as ports open and close;
+  this makes it easy to view activity graphically without any external
+  tooling.  When running in GUI mode the menu bar shows a “View Activity
+  Graph” item that opens the page at the appropriate address.
 
 Examples:
 

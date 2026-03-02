@@ -3,6 +3,8 @@ package gui
 
 import (
     "fmt"
+    "net"
+    "net/http"
     "os"
     "os/exec"
     "path/filepath"
@@ -214,10 +216,46 @@ func Run() {
     systray.Run(onReady, onExit)
 }
 
+var (
+    eventSrv     *http.Server
+    eventCleanup func()
+    eventAddr    string
+    eventURL     string // normalized address for browser
+)
+
+// normalizeAddr converts a listener address (possibly "[::]:port" or
+// "0.0.0.0:port") into a URL string suitable for opening in a browser.
+// Unspecified hosts become "localhost".
+func normalizeAddr(addr string) string {
+    host, port, err := net.SplitHostPort(addr)
+    if err != nil {
+        return "http://" + addr
+    }
+    if host == "" || host == "::" || host == "[::]" || host == "0.0.0.0" {
+        host = "localhost"
+    }
+    // bracket IPv6 addresses if not already
+    if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+        host = "[" + host + "]"
+    }
+    return "http://" + host + ":" + port
+}
+
 func onReady() {
     // configure tray icon and tooltip.  the icon may change based on dark
     // mode; setTrayIcon handles the decision and will be re-run periodically.
     setTrayIcon()
+
+    // start the embedded HTTP server on a random port so the menu can open
+    // the WebUI without requiring the user to manually specify --http-port.
+    if srv, cleanup, err := ports.StartEventServer(":0"); err == nil {
+        eventSrv = srv
+        eventCleanup = cleanup
+        eventAddr = srv.Addr
+        // compute a browser-friendly URL
+        eventURL = normalizeAddr(eventAddr)
+        fmt.Fprintf(os.Stderr, "event server listening on %s (url %s)\n", eventAddr, eventURL)
+    }
 
     // begin ingesting port activity events; the graphing implementation is
     // currently a stub but subscribing here ensures the channel is active.
@@ -227,8 +265,26 @@ func onReady() {
 
     // static items at the bottom of the menu
     aboutItem := systray.AddMenuItem("About goports", "Open project page")
+    // add a general activity graph entry if server started
+    var graphItem *systray.MenuItem
+    if eventAddr != "" {
+        graphItem = systray.AddMenuItem("View Activity Graph", "Open live activity web UI")
+    }
     systray.AddSeparator()
     quitItem := systray.AddMenuItem("Quit", "Quit goports")
+
+    // handle graph menu clicks
+    if graphItem != nil {
+        go func() {
+            for range graphItem.ClickedCh {
+                url := eventURL
+                if url == "" {
+                    url = "http://localhost" // fallback
+                }
+                exec.Command("open", url).Run()
+            }
+        }()
+    }
 
     // settings submenu
     settingsItem := systray.AddMenuItem("Settings", "Preferences")
@@ -376,7 +432,12 @@ func onReady() {
 }
 
 func onExit() {
-    // nothing special to clean up
+    if eventSrv != nil {
+        _ = eventSrv.Close()
+    }
+    if eventCleanup != nil {
+        eventCleanup()
+    }
 }
 
 // setStartAtLogin attempts to add or remove a login item using AppleScript.

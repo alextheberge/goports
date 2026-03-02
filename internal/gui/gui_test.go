@@ -62,3 +62,19 @@ func TestPortTitle(t *testing.T) {
         t.Errorf("title %q should have truncated command", longTitle)
     }
 }
+
+func TestNormalizeAddr(t *testing.T) {
+    cases := map[string]string{
+        ":1234":        "http://localhost:1234",
+        "[::]:9999":     "http://localhost:9999",
+        "0.0.0.0:80":     "http://localhost:80",
+        "127.0.0.1:8080": "http://127.0.0.1:8080",
+        "[::1]:22":      "http://[::1]:22",
+        "foo:123":        "http://foo:123",
+    }
+    for in, want := range cases {
+        if got := normalizeAddr(in); got != want {
+            t.Errorf("normalizeAddr(%q) = %q; want %q", in, got, want)
+        }
+    }
+}

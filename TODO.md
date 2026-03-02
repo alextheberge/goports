@@ -91,9 +91,12 @@ and implementation effort. Items marked **(high return)** should be tackled firs
        can catch up after connecting.
     4. document the API: event structure, URL paths, query parameters, and
        example consumers (e.g. JavaScript web page, Python script).
-  * once the API is defined, build a simple **local web GUI** that connects to
-    it and draws a graph (e.g. using lightweight JavaScript charting library
-    served from the bundle or an embedded `webview` control).
+  * ✅ once the API was defined, build a simple **local web GUI** that connects to
+    it and draws a graph (using Chart.js in `ui.html`).  The interface loads
+    historical events on startup, queries `/status` for a baseline count, and
+    shows a live table of current ports with PID/command/bundle details via
+    a `/ports` snapshot.  Controls allow resetting or downloading the data.
+    A menu item in the macOS app opens the UI automatically.
   * alternative rendering options include a termui dashboard and/or an
     optional CLI flag (`--show-graph`) that spawns a TUI.
   * ensure tests exercise the API adapters and history buffer.

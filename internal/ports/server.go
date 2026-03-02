@@ -48,6 +48,55 @@ var openapiSpec = `{
                 ]
             }
         },
+        "/status":{
+            "get":{
+                "description":"current count of open ports",
+                "responses":{
+                    "200":{
+                        "description":"port count",
+                        "content":{
+                            "application/json":{
+                                "schema":{
+                                    "type":"object",
+                                    "properties":{
+                                        "open":{"type":"integer"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ports":{
+            "get":{
+                "description":"snapshot of current listening ports with metadata",
+                "responses":{
+                    "200":{
+                        "description":"array of port entries",
+                        "content":{
+                            "application/json":{
+                                "schema":{
+                                    "type":"array",
+                                    "items":{
+                                        "type":"object",
+                                        "properties":{
+                                            "Protocol":{"type":"string"},
+                                            "Port":{"type":"integer"},
+                                            "Host":{"type":"string"},
+                                            "Pid":{"type":"integer"},
+                                            "Name":{"type":"string"},
+                                            "Cmdline":{"type":"string"},
+                                            "AppBundle":{"type":"string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/history":{
             "get":{
                 "description":"query past events",
@@ -70,6 +119,14 @@ var openapiSpec = `{
                             }
                         }
                     }
+                }
+            }
+        },
+        "/history/reset":{
+            "post":{
+                "description":"clear stored history",
+                "responses":{
+                    "204":{"description":"no content"}
                 }
             }
         }
@@ -210,6 +267,67 @@ func StartEventServer(addr string) (*http.Server, func(), error) {
         }
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(evts)
+    })
+
+    // clear history buffer on request
+    mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+        // unauthenticated; always accessible for UI clients
+        data := AppsByPort()
+        count := 0
+        for _ = range data {
+            // count distinct port keys
+            count++
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]int{"open": count})
+    })
+
+    mux.HandleFunc("/ports", func(w http.ResponseWriter, r *http.Request) {
+        // return a flat list of entries for UI consumption
+        data := AppsByPort()
+        type outEntry struct {
+            Protocol  string
+            Port      int
+            Host      string
+            Pid       int
+            Name      string
+            Cmdline   string
+            AppBundle string
+        }
+        var out []outEntry
+        for k, ents := range data {
+            for _, e := range ents {
+                out = append(out, outEntry{
+                    Protocol:  k.Protocol,
+                    Port:      k.Port,
+                    Host:      e.Host,
+                    Pid:       int(e.Pid),
+                    Name:      e.Name,
+                    Cmdline:   e.Cmdline,
+                    AppBundle: e.AppBundle,
+                })
+            }
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(out)
+    })
+
+    // redirect chart.js source map to avoid 404 noise in UI
+    mux.HandleFunc("/chart.umd.min.js.map", func(w http.ResponseWriter, r *http.Request) {
+        http.Redirect(w, r, "https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js.map", http.StatusFound)
+    })
+
+    mux.HandleFunc("/history/reset", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != "POST" {
+            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        if !authOK(r) {
+            http.Error(w, "unauthorized", http.StatusUnauthorized)
+            return
+        }
+        clearHistory()
+        w.WriteHeader(http.StatusNoContent)
     })
 
     mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
