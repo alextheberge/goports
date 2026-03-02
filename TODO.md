@@ -68,11 +68,29 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 - Remote host support (SSH).
 - iOS/watchOS companion widget.
 - Real‑time port activity graphs.
-  * first step is infrastructure for recording/open-close events and exposing a
-    subscription API; UI rendering can come later (webview/termui/third-party
-    libs).
-- Scaffold an activity/event system in `internal/ports` so other packages can
-  consume change notifications.
+  * first step was adding infrastructure in `internal/ports` to record open/close
+    events and expose them via `SubscribeActivity` – this yields a channel of
+    `PortActivity` records.
+  * next, define a **sophisticated, robust API** that supports multiple
+    consumers and pluggable transports:
+    1. keep the in‑process channel for callers within the same binary (GUI,
+       CLI helpers, tests).
+    2. expose optional adapters that deliver events over:
+         * a local HTTP streaming endpoint (`/events` with Server-Sent Events or
+           WebSockets) so external applications can ingest activity data in
+           real time.
+         * a UNIX domain socket or TCP port for local clients.
+         * a memory‑mapped file or shared database for high‑throughput logging.
+    3. allow querying recent history (in‑memory circular buffer) so clients
+       can catch up after connecting.
+    4. document the API: event structure, URL paths, query parameters, and
+       example consumers (e.g. JavaScript web page, Python script).
+  * once the API is defined, build a simple **local web GUI** that connects to
+    it and draws a graph (e.g. using lightweight JavaScript charting library
+    served from the bundle or an embedded `webview` control).
+  * alternative rendering options include a termui dashboard and/or an
+    optional CLI flag (`--show-graph`) that spawns a TUI.
+  * ensure tests exercise the API adapters and history buffer.
 - Consolidate logging/diagnostics across platforms (already added debug
   helpers but could offer GUI log viewer).
 - Continue reducing/eliminating external command dependencies by finishing
