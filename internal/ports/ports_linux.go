@@ -5,11 +5,10 @@ package ports
 
 import "errors"
 
-// discoverPorts for Linux is currently a stub.  A future implementation may
-// read /proc/net/{tcp,udp} and translate the information into the same lsof-
-// style text that parseLsof expects.  For now callers receive an error so that
-// the rest of the program can decide how to behave (e.g. report "not
-// supported" or fall back to some other mechanism).
+// discoverPorts for Linux currently shells out to lsof.  This avoids the
+// need to replicate /proc parsing logic while still providing working
+// functionality; the abstraction means the implementation can be replaced
+// later with a native parser without touching the rest of the code.
 func discoverPorts() ([]byte, error) {
-    return nil, errors.New("port enumeration not implemented on linux")
+    return runCmd("lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-iUDP")
 }

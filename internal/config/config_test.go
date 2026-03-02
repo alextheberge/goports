@@ -44,3 +44,46 @@ func TestBlockedNotifications(t *testing.T) {
         t.Errorf("expected blocked entry, got %+v", loaded)
     }
 }
+
+func TestProtocolSettingsDefault(t *testing.T) {
+    // empty file -> both protocols visible by default
+    tmp, err := os.CreateTemp("", "settings*.json")
+    if err != nil {
+        t.Fatal(err)
+    }
+    path := tmp.Name()
+    tmp.Close()
+    defer os.Remove(path)
+
+    old := configPathFunc
+    configPathFunc = func() (string, error) { return path, nil }
+    defer func() { configPathFunc = old }()
+
+    loaded := Load()
+    if !loaded.ShowTCP || !loaded.ShowUDP {
+        t.Errorf("expected both protocols to be visible by default, got %v", loaded)
+    }
+}
+
+func TestProtocolSettingsSaveLoad(t *testing.T) {
+    tmp, err := os.CreateTemp("", "settings*.json")
+    if err != nil {
+        t.Fatal(err)
+    }
+    path := tmp.Name()
+    tmp.Close()
+    defer os.Remove(path)
+
+    old := configPathFunc
+    configPathFunc = func() (string, error) { return path, nil }
+    defer func() { configPathFunc = old }()
+
+    s := Settings{ShowTCP: false, ShowUDP: true}
+    if err := Save(s); err != nil {
+        t.Fatalf("save failed: %v", err)
+    }
+    loaded := Load()
+    if loaded.ShowTCP || !loaded.ShowUDP {
+        t.Errorf("save/load mismatch: %v", loaded)
+    }
+}

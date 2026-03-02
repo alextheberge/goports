@@ -13,6 +13,8 @@ type Settings struct {
     RefreshInterval      int               `json:"refresh_interval"` // seconds
     SearchFilter         string            `json:"search_filter,omitempty"` // last GUI filter text
     BlockedNotifications map[string]bool   `json:"blocked_notifications,omitempty"`
+    ShowTCP              bool              `json:"show_tcp"`
+    ShowUDP              bool              `json:"show_udp"`
 }
 
 const defaultInterval = 5
@@ -40,22 +42,27 @@ func configPath() (string, error) {
 func Load() Settings {
     path, err := configPath()
     if err != nil {
-        return Settings{Notifications: true, RefreshInterval: defaultInterval}
+        return Settings{Notifications: true, RefreshInterval: defaultInterval, ShowTCP: true, ShowUDP: true}
     }
     f, err := os.Open(path)
     if err != nil {
-        return Settings{Notifications: true, RefreshInterval: defaultInterval}
+        return Settings{Notifications: true, RefreshInterval: defaultInterval, ShowTCP: true, ShowUDP: true}
     }
     defer f.Close()
     var s Settings
     if err := json.NewDecoder(f).Decode(&s); err != nil {
-        return Settings{Notifications: true, RefreshInterval: defaultInterval}
+        return Settings{Notifications: true, RefreshInterval: defaultInterval, ShowTCP: true, ShowUDP: true}
     }
     if s.RefreshInterval <= 0 {
         s.RefreshInterval = defaultInterval
     }
     if s.BlockedNotifications == nil {
         s.BlockedNotifications = make(map[string]bool)
+    }
+    // default to showing both protocols unless explicitly disabled
+    if !s.ShowTCP && !s.ShowUDP {
+        s.ShowTCP = true
+        s.ShowUDP = true
     }
     return s
 }

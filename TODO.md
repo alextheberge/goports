@@ -17,17 +17,20 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 6. **Cross-platform foundation** –
    * abstraction layer (`discoverPorts`) added so platform-specific
      implementations can replace `lsof` in future.
+   * Linux backend currently shells out to `lsof`, providing working CLI
+     support.  Windows still pending.
    * platform tagged mains created; non-darwin builds yield CLI-only binary
      avoiding GUI dependencies.
-   * Next step: implement native enumeration on Linux/Windows.
+   * Next step: implement native enumeration on Linux/Windows (optional once
+     `lsof` fallback is satisfactory).
 
 ## 2. GUI polish & usability
 
 - ✅ Add search/filter box in menu-bar GUI.
 - ✅ Dark mode support (icon variants) and basic accessibility support.
 - ✅ Notifications per-port toggle with persisted settings.
-- Preferences pane for refresh interval and protocols to show. (still
-todo)
+- ✅ Preferences pane for refresh interval and protocols to show.
+  *TCP/UDP visibility checkboxes implemented.*
 
 ## 3. Developer experience & packaging
 

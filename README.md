@@ -108,12 +108,14 @@ archive produced by `make dist`.
 ### Usage
 
 `goports` enumerates listening sockets via a platform-specific engine.
-On macOS the implementation shells out to `lsof`, and the code is structured
-so that Linux/Windows backends can be added in the future.  Currently the
-utility requires macOS; attempts to build or run on other OSes will produce
-an "not implemented" error.  The CLI output includes a ``PROTO`` column so
-the protocol is obvious.  Both GUI and CLI share the same engine; items
-appear in the menu bar and the table automatically.
+On macOS the implementation shells out to `lsof`.  On Linux we fall back to
+`lsof` as well, so the CLI can be cross-compiled and run wherever `lsof`
+is available; Windows support is planned.  The code is structured so that
+native backends may be substituted later without touching rendering logic.
+The CLI output includes a ``PROTO`` column so the protocol is obvious.  When
+running the GUI you will initially need macOS; non-darwin builds are CLI-
+only.  Both GUI and CLI share the same engine; items appear in the menu bar
+and the table automatically.
 
 Behaviors you get “for free”:
 
@@ -148,6 +150,8 @@ applied.)
 When running in GUI mode a "Settings" submenu is available.  In addition to
 login items and interval controls you can now:
 
+* **Show TCP/Show UDP** checkboxes – toggle visibility of each protocol
+  from the Settings menu; useful when you only care about one type.
 * **Filter…** — show only menu items matching a case-insensitive substring;
   the current filter is displayed in the menu and persisted across launches.
 * **Enable Notifications** checkbox appears in each port submenu, allowing
@@ -155,6 +159,8 @@ login items and interval controls you can now:
   sessions.
 * The menu bar icon automatically switches between light and dark variants
   depending on your macOS appearance.
+* Descriptive tooltips on menu items improve accessibility for assistive
+  technologies such as VoiceOver.
 
 The following preferences are persisted across launches:
 

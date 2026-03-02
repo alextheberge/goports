@@ -189,6 +189,8 @@ func onReady() {
     settingsItem := systray.AddMenuItem("Settings", "Preferences")
     startItem := settingsItem.AddSubMenuItemCheckbox("Start at Login", "Launch goports when you log in", false)
     notifItem := settingsItem.AddSubMenuItemCheckbox("Enable Notifications", "Notify when ports open/close", false)
+    tcpItem := settingsItem.AddSubMenuItemCheckbox("Show TCP", "Display TCP listening ports", true)
+    udpItem := settingsItem.AddSubMenuItemCheckbox("Show UDP", "Display UDP listeners", true)
     filterItem := settingsItem.AddSubMenuItem("Filter...", "Show only ports matching text")
     refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
 
@@ -202,6 +204,16 @@ func onReady() {
         notifItem.Check()
     } else {
         notifItem.Uncheck()
+    }
+    if cfg.ShowTCP {
+        tcpItem.Check()
+    } else {
+        tcpItem.Uncheck()
+    }
+    if cfg.ShowUDP {
+        udpItem.Check()
+    } else {
+        udpItem.Uncheck()
     }
     if cfg.SearchFilter != "" {
         filterItem.SetTitle(fmt.Sprintf("Filter: %s", cfg.SearchFilter))
@@ -242,6 +254,28 @@ func onReady() {
                 filterItem.SetTitle("Filter...")
             } else {
                 filterItem.SetTitle(fmt.Sprintf("Filter: %s", newf))
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range tcpItem.ClickedCh {
+            cfg.ShowTCP = !cfg.ShowTCP
+            if cfg.ShowTCP {
+                tcpItem.Check()
+            } else {
+                tcpItem.Uncheck()
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range udpItem.ClickedCh {
+            cfg.ShowUDP = !cfg.ShowUDP
+            if cfg.ShowUDP {
+                udpItem.Check()
+            } else {
+                udpItem.Uncheck()
             }
             _ = config.Save(cfg)
         }
@@ -335,6 +369,14 @@ func tickerLoop() {
         }
 
         newPorts := ports.AppsByPort()
+        // respect protocol visibility settings
+        if !cfg.ShowTCP || !cfg.ShowUDP {
+            for k := range newPorts {
+                if (k.Protocol == "tcp" && !cfg.ShowTCP) || (k.Protocol == "udp" && !cfg.ShowUDP) {
+                    delete(newPorts, k)
+                }
+            }
+        }
 
         var keys []ports.PortKey
         for k := range newPorts {
@@ -386,7 +428,8 @@ func tickerLoop() {
 
             group, exists := portMenu[key]
             if !exists {
-                parent := systray.AddMenuItem(title, "")
+                desc := fmt.Sprintf("%s listening on %s%s", entries[0].Name, entries[0].Host, func() string { if entries[0].AppBundle != "" { return " (" + entries[0].AppBundle + ")" } return "" }())
+                parent := systray.AddMenuItem(title, desc)
                 // attempt to attach application icon if available
                 var setIcon bool
                 if entries[0].AppBundle != "" {
@@ -401,16 +444,16 @@ func tickerLoop() {
                         parent.SetIcon(icon)
                     }
                 }
-                pidItem := parent.AddSubMenuItem("PIDs: "+strings.Join(pidStrs, ", "), "")
-                cmdItem := parent.AddSubMenuItem("Cmd: "+strings.Join(cmdStrs, " | "), "")
+                pidItem := parent.AddSubMenuItem("PIDs: "+strings.Join(pidStrs, ", "), "Process IDs listening on this port")
+                cmdItem := parent.AddSubMenuItem("Cmd: "+strings.Join(cmdStrs, " | "), "Full command lines for the processes")
                 notifToggle := parent.AddSubMenuItemCheckbox("Enable Notifications", "Toggle alerts for this port", true)
                 if cfg.BlockedNotifications[key.String()] {
                     notifToggle.Uncheck()
                 } else {
                     notifToggle.Check()
                 }
-                killItem := parent.AddSubMenuItem("Kill All", "Terminate all processes on this port")
-                openItem := parent.AddSubMenuItem(fmt.Sprintf("Open http://localhost:%d", key.Port), "")
+                killItem := parent.AddSubMenuItem("Kill All", "Terminate all processes listening on this port")
+                openItem := parent.AddSubMenuItem(fmt.Sprintf("Open http://localhost:%d", key.Port), "Open this port in the default browser")
 
                 group = &portMenuGroup{
                     parent:   parent,
