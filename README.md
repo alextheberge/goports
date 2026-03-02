@@ -111,14 +111,16 @@ archive produced by `make dist`.
 On macOS the implementation now reads listener information via the
 `sysctl` interface (`net.inet.{tcp,udp}.pcblist`) and subsequently scans
 process file descriptors via `libproc`, so PIDs, names and command-line
-paths are obtained without ever spawning `netstat`/`lsof`.  Netstat is only
-consulted as a fallback if the syscall fails.  On Linux we likewise parse
-`/proc/net/*` and then inspect `/proc/<pid>/fd` entries to map sockets back to
-processes, populating PID, command line and executable name.  On Windows the
-backend uses the IP Helper API (`GetExtendedTcpTable`/`GetExtendedUdpTable`)
-plus `QueryFullProcessImageName` to provide equivalent native data.  In all
-cases, falling back to the appropriate system tool (lsof/netstat) is still
-possible if the native call fails.
+paths are obtained without ever spawning `netstat`/`lsof`.  A short in‑memory
+cache (≈1 s) avoids repeated kernel calls during rapid polling.  Netstat is
+only consulted as a fallback if the syscall fails.  On Linux we likewise
+parse `/proc/net/*` and then inspect `/proc/<pid>/fd` entries to map sockets
+back to processes, populating PID, command line and executable name; the
+native map is also cached briefly.  On Windows the backend uses the IP Helper
+API (`GetExtendedTcpTable`/`GetExtendedUdpTable`) plus
+`QueryFullProcessImageName` to provide equivalent native data.  In all cases,
+fallback to the appropriate system tool (lsof/netstat) remains possible if
+the native call fails.
 The code is structured so that fully native backends (e.g. Win32 APIs) may
 replace the external command dependencies later without touching rendering
 logic.
@@ -132,6 +134,9 @@ Behaviors you get “for free”:
 * reverse DNS on local addresses (`127.0.0.1` → `localhost`,
   bracketed IPv6 addresses are also handled)
 * process bundle ID and icon lookups when available
+* GUI menu‑bar titles now include the PID(s) and a short command‑line
+  snippet for each listening process, making it easy to identify and
+  drill into the responsible application without opening a submenu
 
 #### CLI flags
 
@@ -168,11 +173,30 @@ login items and interval controls you can now:
   you to mute alerts for specific ports.  Settings are remembered between
   sessions.
 * **Use native discovery only** checkbox – when checked the GUI will refrain
-  from invoking `lsof`/other helpers and rely purely on built-in APIs.  The
-  implementation reads listener state via sysctl (IPv4 and IPv6) and
-  netstat, then scans process file descriptors via libproc to populate PIDs,
-  process names and executable paths.  No external binaries are executed,
-  yet metadata remains richly populated.
+  from invoking `lsof` or other helper binaries and rely purely on built-in
+  platform APIs (sysctl/netstat plus a `libproc` fd scan on macOS, `/proc` on
+  Linux, or IP Helper APIs on Windows).  The results are cached and the path
+  is lightweight and free of external dependencies.
+
+  **Why enable this mode?**
+
+  * You need a single, self-contained binary with **no external command
+    dependencies** – useful in containers, sandboxes, signed/hardened builds,
+    or on systems that might not even have `lsof` installed.
+  * Performance/battery.  Repeatedly shelling out to `lsof` can be expensive;
+    the native path is faster and less CPU-intensive during frequent polling.
+  * Cross-platform testing.  Linux and Windows discovery currently only
+    exist in native mode, so the flag lets you exercise those backends.
+
+  **What are the downsides?**
+
+  The kernel may refuse to expose process metadata.  On macOS this happens
+  under SIP, sandboxing, or when running as an unprivileged user; on Linux
+  permissions can block `/proc/<pid>/fd` inspection.  In these cases the
+  native backend will return listeners with `Pid == 0` and blank command
+  lines/bundle IDs.  There is no workaround without invoking `lsof`, which is
+  why the checkbox is available – leave it off if you want rich PID/cmdline
+  information.
 * The menu bar icon automatically switches between light and dark variants
   depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
@@ -191,7 +215,11 @@ The following preferences are persisted across launches:
 These settings are stored in `~/.config/goports/settings.json`.
 
 * `--gui` — launch the menu‑bar GUI (default when no flags are provided).
-* `--native` — avoid calling external tools (like `lsof`); use built-in platform APIs only.  The engine now scans process fds via libproc and sysctl, so PIDs, names and even executable paths are obtained natively (IPv4/IPv6).  This removes all external dependencies while still providing rich metadata on macOS.
+* `--native` — avoid calling external tools (like `lsof`); use built-in
+  platform APIs only.  See the discussion above about native discovery
+  limitations: metadata may still be missing if the kernel refuses to expose it.
+  The environment variables `GOPORTS_DEBUG=1` and `GOPORTS_FAKE_SYSCTL=1`
+  can be used to diagnose or simulate failures when running from a terminal.
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
 * `--kill <port>` — terminate all processes listening on `<port>`
   (any protocol).

@@ -5,6 +5,7 @@ import (
     "context"
     "fmt"
     "net"
+    "os"
     "os/exec"
     "path/filepath"
     "runtime"
@@ -130,6 +131,14 @@ func resolveHost(address string) string {
 // during testing if necessary.
 var commandTimeout = 2 * time.Second
 
+// timeNow allows tests to control the current time; production code uses
+// time.Now.
+var timeNow = time.Now
+
+// cacheDuration is the amount of time for which native discovery results
+// are retained before re‑querying the kernel.
+const cacheDuration = 1 * time.Second
+
 // runCmd executes a command with the global timeout and returns its output.
 // It is a small wrapper around exec.CommandContext for convenience.
 func runCmd(name string, args ...string) ([]byte, error) {
@@ -145,6 +154,20 @@ func runCmd(name string, args ...string) ([]byte, error) {
 type PortKey struct {
     Protocol string // e.g. "tcp", "udp"
     Port     int
+}
+
+// hasPidInfo returns true if at least one entry in the map has a non-zero
+// PID.  This is used to decide whether the native sysctl/netstat results are
+// worth keeping or whether we should fall back to `lsof` for richer data.
+func hasPidInfo(m map[PortKey][]PortEntry) bool {
+    for _, list := range m {
+        for _, e := range list {
+            if e.Pid != 0 {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 // parseHexIP converts the /proc/net hex IP representation to a numeric
@@ -175,6 +198,11 @@ func (k PortKey) String() string {
     return fmt.Sprintf("%s/%d", k.Protocol, k.Port)
 }
 
+// We expose the Darwin-specific discovery function via a variable so that
+// tests can simulate failures and verify the lsof fallback logic.  It normally
+// points at appsBySysctl, but a test may override it.
+var sysctlImpl = appsBySysctl
+
 // AppsByPort returns a mapping from PortKey to a slice of PortEntry instances
 // representing processes bound to that socket.  We shell out to `lsof` on
 // macOS because Go has no cross‑platform introspection API; the command now
@@ -196,6 +224,18 @@ func SetNativeOnly(v bool) {
     nativeOnly = v
 }
 
+// helper for debug logging.  When the environment variable
+// GOPORTS_DEBUG is set to any value, diagnostic messages are printed to
+// stderr.  Users can run `GOPORTS_DEBUG=1 ./bin/goports --gui 2>&1` to
+// capture backend errors when investigating why no PIDs appear.
+var debugMode = os.Getenv("GOPORTS_DEBUG") != ""
+
+func dlog(format string, args ...interface{}) {
+    if debugMode {
+        fmt.Fprintf(os.Stderr, format+"\n", args...)
+    }
+}
+
 // NativeOnlyEnabled reports whether discovery is restricted to native
 // mechanisms.  It exists primarily for tests and CLI/GUI integration.
 func NativeOnlyEnabled() bool {
@@ -205,20 +245,55 @@ func NativeOnlyEnabled() bool {
 func AppsByPort() map[PortKey][]PortEntry {
     portsMap := make(map[PortKey][]PortEntry)
 
-    // darwin has a native path using sysctl; if that fails we try netstat
-    // as a backup before falling back to lsof.  The nativeOnly flag prevents
-    // us from ever invoking lsof.
+    // darwin has a native path using sysctl; fall back to netstat and
+    // finally lsof if necessary.  Historically we only invoked lsof when the
+    // two native mechanisms returned *no* entries at all, which meant that a
+    // failure of sysctl_pcblist (common in sandboxed/testing environments)
+    // resulted in a netstat map lacking PID information.  The GUI was thus
+    // never populated with process metadata even though lsof could have
+    // provided it.  The new logic ensures that lsof is attempted whenever the
+    // earlier native calls either fail or do not supply PID data and the user
+    // has not requested native‑only discovery.
     if runtime.GOOS == "darwin" {
-        if m, err := appsBySysctl(); err == nil && len(m) > 0 {
+        if m, err := sysctlImpl(); err == nil && len(m) > 0 {
+            dlog("appsByPort: sysctl returned %d entries", len(m))
+            // if every entry has a zero pid then sysctl/netstat may have
+            // succeeded but provided no metadata.  in that case fall back to
+            // lsof unless the caller explicitly asked for native-only results.
+            if !nativeOnly && !hasPidInfo(m) {
+                dlog("appsByPort: sysctl results lack pid data, trying lsof")
+                if out, err := discoverPorts(); err == nil {
+                    return parseLsof(out)
+                }
+                dlog("appsByPort: lsof fallback failed: %v", err)
+            }
             return m
+        } else if err != nil {
+            dlog("appsByPort: sysctl error: %v", err)
+            // continue so we can try lsof/netstat below
         }
+
+        if !nativeOnly {
+            dlog("appsByPort: attempting lsof fallback")
+            if out, err := discoverPorts(); err == nil {
+                return parseLsof(out)
+            } else {
+                dlog("appsByPort: lsof failed: %v", err)
+            }
+        }
+
         if m, err := appsByNetstat(); err == nil && len(m) > 0 {
+            dlog("appsByPort: netstat returned %d entries", len(m))
             return m
+        } else if err != nil {
+            dlog("appsByPort: netstat error: %v", err)
         }
+
         if nativeOnly {
             return portsMap
         }
-        // fall through to lsof if both native attempts failed
+        // if we get here it means both native mechanisms either errored or
+        // returned no entries; we'll fall through to the generic lsof path
     }
 
     // linux also has a native path using /proc; appsByProc is defined in

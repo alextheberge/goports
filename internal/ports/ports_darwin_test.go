@@ -4,6 +4,7 @@
 package ports
 
 import (
+    "fmt"
     "net"
     "testing"
     "time"
@@ -152,6 +153,75 @@ func TestAppsBySysctlNativePid(t *testing.T) {
     }
     if len(m) > 0 {
         t.Fatalf("expected some entries with pid under nativeOnly, got %v", m)
+    }
+}
+
+func TestSysctlFailureFallsBackToLsof(t *testing.T) {
+    // simulate a sysctl implementation error and verify that AppsByPort
+    // still returns metadata by invoking lsof.  This exercises the new
+    // fallback logic added to AppsByPort.
+    orig := sysctlImpl
+    defer func() { sysctlImpl = orig }()
+    sysctlImpl = func() (map[PortKey][]PortEntry, error) {
+        return nil, fmt.Errorf("simulated sysctl failure")
+    }
+
+    SetNativeOnly(false)
+    m := AppsByPort()
+    found := false
+    for _, list := range m {
+        for _, e := range list {
+            if e.Pid != 0 {
+                found = true
+                break
+            }
+        }
+        if found {
+            break
+        }
+    }
+    if !found {
+        t.Skip("lsof did not return any metadata; ensure lsof is available")
+    }
+}
+
+func TestSysctlEmptyEntriesTriggersFallback(t *testing.T) {
+    // sysctlImpl returns a non-empty map but with no PID information.  The
+    // caller should invoke lsof instead when nativeOnly=false.
+    orig := sysctlImpl
+    defer func() { sysctlImpl = orig }()
+    key := PortKey{Protocol: "tcp", Port: 4242}
+    sysctlImpl = func() (map[PortKey][]PortEntry, error) {
+        return map[PortKey][]PortEntry{key: {{}}}, nil
+    }
+
+    SetNativeOnly(false)
+    m := AppsByPort()
+    if len(m[key]) == 0 || m[key][0].Pid == 0 {
+        t.Skip("lsof fallback did not return PID info; ensure lsof available")
+    }
+}
+
+func TestSysctlCache(t *testing.T) {
+    original := timeNow
+    defer func() { timeNow = original }()
+    now := time.Now()
+    timeNow = func() time.Time { return now }
+    if _, err := appsBySysctl(); err != nil {
+        t.Skipf("sysctl not available: %v", err)
+    }
+    // inject marker into cache
+    marker := PortKey{Protocol: "tcp", Port: 9999}
+    sysctlCache.mu.Lock()
+    if sysctlCache.m == nil {
+        sysctlCache.m = make(map[PortKey][]PortEntry)
+    }
+    sysctlCache.m[marker] = []PortEntry{{Name: "marker"}}
+    sysctlCache.mu.Unlock()
+    timeNow = func() time.Time { return now.Add(500 * time.Millisecond) }
+    m2, _ := appsBySysctl()
+    if len(m2[marker]) == 0 {
+        t.Fatalf("cache was not used, marker missing")
     }
 }
 

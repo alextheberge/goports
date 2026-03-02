@@ -152,9 +152,20 @@ import (
     "bytes"
     "fmt"
     "net"
+    "os"
     "strings"
+    "sync"
+    "time"
     "unsafe"
 )
+
+// cache for sysctl-based discovery (macOS).  Protected by mutex; tests
+// manipulate it directly to validate caching behaviour.
+var sysctlCache struct {
+    mu sync.Mutex
+    m  map[PortKey][]PortEntry
+    ts time.Time
+}
 
 
 // allZero reports whether every byte in the slice is zero.
@@ -294,6 +305,25 @@ func appsByNetstat() (map[PortKey][]PortEntry, error) {
 // appsBySysctl obtains listener information via native sysctl calls; it may
 // return entries with empty Name/Pid.
 func appsBySysctl() (map[PortKey][]PortEntry, error) {
+    // permit callers to simulate a failure (useful during debugging or in
+    // constrained environments).  When GOPORTS_FAKE_SYSCTL is set the native
+    // path will return an error and AppsByPort will fall back to lsof/netstat.
+    if os.Getenv("GOPORTS_FAKE_SYSCTL") == "1" {
+        return nil, fmt.Errorf("forced sysctl failure")
+    }
+
+    // caching
+    sysctlCache.mu.Lock()
+    if sysctlCache.m != nil && timeNow().Sub(sysctlCache.ts) < cacheDuration {
+        res := make(map[PortKey][]PortEntry, len(sysctlCache.m))
+        for k, v := range sysctlCache.m {
+            res[k] = append([]PortEntry(nil), v...)
+        }
+        sysctlCache.mu.Unlock()
+        return res, nil
+    }
+    sysctlCache.mu.Unlock()
+
     var entries *C.struct_goentry
     var cnt C.int
     if C.sysctl_pcblist(&entries, &cnt) != 0 {
@@ -329,6 +359,14 @@ func appsBySysctl() (map[PortKey][]PortEntry, error) {
         }
     }
 
+    // update cache
+    sysctlCache.mu.Lock()
+    sysctlCache.m = make(map[PortKey][]PortEntry, len(result))
+    for k, v := range result {
+        sysctlCache.m[k] = append([]PortEntry(nil), v...)
+    }
+    sysctlCache.ts = timeNow()
+    sysctlCache.mu.Unlock()
     return result, nil
 }
 

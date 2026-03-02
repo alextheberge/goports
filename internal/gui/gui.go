@@ -157,6 +157,47 @@ func findIcns(appPath string) string {
     })
     return result
 }
+
+// portTitle builds the menu item title for a port key and its associated
+// entries.  It includes the protocol/port, host, executable name, bundle
+// identifier, and — crucially — any process IDs and a short command-line
+// snippet.  Including the PID/CMD directly in the title makes the information
+// visible without opening the submenu, matching the behaviour of the legacy
+// macOS app and addressing the user's request to "bring back" that useful
+// metadata.
+func portTitle(key ports.PortKey, entries []ports.PortEntry) string {
+    // collect PIDs and a command snippet
+    var pidStrs []string
+    for _, e := range entries {
+        if e.Pid != 0 {
+            pidStrs = append(pidStrs, fmt.Sprintf("%d", e.Pid))
+        }
+    }
+    cmdSnippet := ""
+    if len(entries) > 0 && entries[0].Cmdline != "" {
+        cmdSnippet = entries[0].Cmdline
+        if len(cmdSnippet) > 40 {
+            cmdSnippet = cmdSnippet[:40] + "…"
+        }
+    }
+
+    title := fmt.Sprintf("%s %d", strings.ToUpper(key.Protocol), key.Port)
+    if entries[0].Host != "" {
+        title += fmt.Sprintf(" (%s)", entries[0].Host)
+    }
+    if len(pidStrs) > 0 {
+        title += fmt.Sprintf(" [%s]", strings.Join(pidStrs, ","))
+    }
+    if cmdSnippet != "" {
+        title += fmt.Sprintf(" - %s", cmdSnippet)
+    } else if entries[0].Name != "" {
+        title += fmt.Sprintf(" - %s", entries[0].Name)
+    }
+    if entries[0].AppBundle != "" {
+        title += fmt.Sprintf(" (%s)", entries[0].AppBundle)
+    }
+    return title
+}
 // by keeping a permanent structure we avoid recreating goroutines and menu
 // entries on every reopen.
 type portMenuGroup struct {
@@ -429,19 +470,14 @@ func tickerLoop() {
             }
 
             // aggregate metadata across all entries
+            title := portTitle(key, entries)
+            // we still need pid and command strings for the submenu when
+            // creating or updating an existing group
             var pidStrs []string
             var cmdStrs []string
             for _, e := range entries {
                 pidStrs = append(pidStrs, fmt.Sprintf("%d", e.Pid))
                 cmdStrs = append(cmdStrs, e.Cmdline)
-            }
-            title := fmt.Sprintf("%s %d", strings.ToUpper(key.Protocol), key.Port)
-            if entries[0].Host != "" {
-                title += fmt.Sprintf(" (%s)", entries[0].Host)
-            }
-            title += fmt.Sprintf(" - %s", entries[0].Name)
-            if entries[0].AppBundle != "" {
-                title += fmt.Sprintf(" (%s)", entries[0].AppBundle)
             }
 
             group, exists := portMenu[key]

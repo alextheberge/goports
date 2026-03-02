@@ -11,6 +11,7 @@ import (
     "path/filepath"
     "strconv"
     "strings"
+    "sync"
     "testing"
     "time"
 )
@@ -20,7 +21,25 @@ import (
 // default implementation; pid and Name fields may be empty if the inode lookup
 // fails.  When built for linux the generic AppsByPort in ports.go will call
 // this helper before falling back to the shell-out path.
+// caching for appsByProc
+var procCache struct {
+    mu sync.Mutex
+    m  map[PortKey][]PortEntry
+    ts time.Time
+}
+
 func appsByProc() (map[PortKey][]PortEntry, error) {
+    procCache.mu.Lock()
+    if procCache.m != nil && timeNow().Sub(procCache.ts) < cacheDuration {
+        res := make(map[PortKey][]PortEntry, len(procCache.m))
+        for k, v := range procCache.m {
+            res[k] = append([]PortEntry(nil), v...)
+        }
+        procCache.mu.Unlock()
+        return res, nil
+    }
+    procCache.mu.Unlock()
+
     inodeToPid := make(map[string]int32)
     // build inode->pid map by scanning /proc/[0-9]*/fd
     filepath.WalkDir("/proc", func(path string, d os.DirEntry, err error) error {
@@ -126,6 +145,14 @@ func appsByProc() (map[PortKey][]PortEntry, error) {
         }
         f.Close()
     }
+    // store in cache
+    procCache.mu.Lock()
+    procCache.m = make(map[PortKey][]PortEntry, len(result))
+    for k, v := range result {
+        procCache.m[k] = append([]PortEntry(nil), v...)
+    }
+    procCache.ts = timeNow()
+    procCache.mu.Unlock()
     return result, nil
 }
 // The following test exercises appsByProc to ensure PID and command-line
@@ -161,5 +188,27 @@ func TestAppsByProcMetadata(t *testing.T) {
     }
     if !found {
         t.Fatalf("expected metadata for %d, got %v", port, m)
+    }
+}
+// cache validation for appsByProc
+func TestProcCache(t *testing.T) {
+    original := timeNow
+    defer func() { timeNow = original }()
+    now := time.Now()
+    timeNow = func() time.Time { return now }
+    if _, err := appsByProc(); err != nil {
+        t.Skipf("appsByProc failed: %v", err)
+    }
+    marker := PortKey{Protocol: "udp", Port: 54321}
+    procCache.mu.Lock()
+    if procCache.m == nil {
+        procCache.m = make(map[PortKey][]PortEntry)
+    }
+    procCache.m[marker] = []PortEntry{{Name: "marker"}}
+    procCache.mu.Unlock()
+    timeNow = func() time.Time { return now.Add(500 * time.Millisecond) }
+    m2, _ := appsByProc()
+    if len(m2[marker]) == 0 {
+        t.Fatalf("proc cache was not used, marker missing")
     }
 }
