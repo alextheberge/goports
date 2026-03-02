@@ -68,6 +68,11 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 - Remote host support (SSH).
 - iOS/watchOS companion widget.
 - Real‑time port activity graphs.
+  * first step is infrastructure for recording/open-close events and exposing a
+    subscription API; UI rendering can come later (webview/termui/third-party
+    libs).
+- Scaffold an activity/event system in `internal/ports` so other packages can
+  consume change notifications.
 - Consolidate logging/diagnostics across platforms (already added debug
   helpers but could offer GUI log viewer).
 - Continue reducing/eliminating external command dependencies by finishing

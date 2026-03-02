@@ -241,3 +241,33 @@ func TestMergeLsofMeta(t *testing.T) {
         t.Fatalf("merge failed, got %+v; meta=%+v", e, meta)
     }
 }
+
+func TestActivityNotifications(t *testing.T) {
+    // ensure the activity channel emits open/close events as maps change
+    lastPorts = nil
+    ch := SubscribeActivity()
+    // drain any stale events left over from other tests
+    for {
+        select {
+        case <-ch:
+            continue
+        default:
+        }
+        break
+    }
+
+    // first call should notify open
+    newmap := map[PortKey][]PortEntry{{Protocol: "tcp", Port: 100}: {{}}}
+    diffAndPublish(newmap)
+    evt := <-ch
+    if !evt.Open || evt.Key.Port != 100 {
+        t.Fatalf("expected open event, got %+v", evt)
+    }
+
+    // second call removing the port should notify close
+    diffAndPublish(map[PortKey][]PortEntry{})
+    evt = <-ch
+    if evt.Open {
+        t.Fatalf("expected close event, got %+v", evt)
+    }
+}

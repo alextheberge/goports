@@ -218,6 +218,10 @@ func onReady() {
     // configure tray icon and tooltip.  the icon may change based on dark
     // mode; setTrayIcon handles the decision and will be re-run periodically.
     setTrayIcon()
+
+    // begin ingesting port activity events; the graphing implementation is
+    // currently a stub but subscribing here ensures the channel is active.
+    startGraphing()
     systray.SetTitle("") // no title, just an icon
     systray.SetTooltip("Ports")
 

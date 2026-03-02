@@ -218,6 +218,11 @@ var sysctlImpl = appsBySysctl
 // the user wants a purely native stack.
 var nativeOnly bool
 
+// lastPorts retains the previous result returned by AppsByPort; it is used to
+// detect openings/closures so that activity subscribers can be notified.  It
+// is replaced wholesale on each invocation.
+var lastPorts map[PortKey][]PortEntry
+
 // SetNativeOnly is used by callers (typically CLI/GUI) to force discovery
 // without invoking lsof.  Tests may also toggle it.
 func SetNativeOnly(v bool) {
@@ -245,6 +250,12 @@ func NativeOnlyEnabled() bool {
 func AppsByPort() map[PortKey][]PortEntry {
     portsMap := make(map[PortKey][]PortEntry)
 
+    // wrapper ensures we diff against the previous scan before returning.
+    publish := func(m map[PortKey][]PortEntry) map[PortKey][]PortEntry {
+        diffAndPublish(m)
+        return m
+    }
+
     // darwin has a native path using sysctl; fall back to netstat and
     // finally lsof if necessary.  Historically we only invoked lsof when the
     // two native mechanisms returned *no* entries at all, which meant that a
@@ -263,7 +274,7 @@ func AppsByPort() map[PortKey][]PortEntry {
             if !nativeOnly && !hasPidInfo(m) {
                 dlog("appsByPort: sysctl results lack pid data, trying lsof")
                 if out, err := discoverPorts(); err == nil {
-                    return parseLsof(out)
+                    return publish(parseLsof(out))
                 }
                 dlog("appsByPort: lsof fallback failed: %v", err)
             }
@@ -276,7 +287,7 @@ func AppsByPort() map[PortKey][]PortEntry {
         if !nativeOnly {
             dlog("appsByPort: attempting lsof fallback")
             if out, err := discoverPorts(); err == nil {
-                return parseLsof(out)
+                return publish(parseLsof(out))
             } else {
                 dlog("appsByPort: lsof failed: %v", err)
             }
@@ -284,9 +295,7 @@ func AppsByPort() map[PortKey][]PortEntry {
 
         if m, err := appsByNetstat(); err == nil && len(m) > 0 {
             dlog("appsByPort: netstat returned %d entries", len(m))
-            return m
-        } else if err != nil {
-            dlog("appsByPort: netstat error: %v", err)
+            return publish(m)
         }
 
         if nativeOnly {
@@ -300,7 +309,7 @@ func AppsByPort() map[PortKey][]PortEntry {
     // ports_linux_impl.go and will only exist when building for linux.
     if runtime.GOOS == "linux" {
         if m, err := appsByProc(); err == nil && len(m) > 0 {
-            return m
+            return publish(m)
         }
         if nativeOnly {
             return portsMap
@@ -310,7 +319,7 @@ func AppsByPort() map[PortKey][]PortEntry {
     // ports_windows_impl.go and is only available on that platform.
     if runtime.GOOS == "windows" {
         if m, err := appsByWin(); err == nil && len(m) > 0 {
-            return m
+            return publish(m)
         }
         if nativeOnly {
             return portsMap
@@ -321,7 +330,7 @@ func AppsByPort() map[PortKey][]PortEntry {
     if err != nil {
         return portsMap
     }
-    return parseLsof(out)
+    return publish(parseLsof(out))
 }
 
 // discoverPorts is implemented per-OS in other files.  The darwin version
@@ -330,6 +339,33 @@ func AppsByPort() map[PortKey][]PortEntry {
 // supported.
 //
 // func discoverPorts() ([]byte, error)
+
+// diffAndPublish compares newPorts with lastPorts and sends PortActivity events
+// for keys that appeared or disappeared.
+func diffAndPublish(newPorts map[PortKey][]PortEntry) {
+    now := time.Now()
+    // always emit open events for entries not seen previously (or when
+    // lastPorts is nil)
+    for k := range newPorts {
+        if lastPorts == nil {
+            publishActivity(PortActivity{Key: k, Timestamp: now, Open: true})
+        } else if _, ok := lastPorts[k]; !ok {
+            publishActivity(PortActivity{Key: k, Timestamp: now, Open: true})
+        }
+    }
+    if lastPorts != nil {
+        for k := range lastPorts {
+            if _, ok := newPorts[k]; !ok {
+                publishActivity(PortActivity{Key: k, Timestamp: now, Open: false})
+            }
+        }
+    }
+    // replace lastPorts with a shallow copy to avoid retaining references
+    lastPorts = make(map[PortKey][]PortEntry, len(newPorts))
+    for k, v := range newPorts {
+        lastPorts[k] = append([]PortEntry(nil), v...)
+    }
+}
 
 // parseLsof consumes the raw output of an `lsof` invocation and returns the
 // corresponding ports map.  It is exported indirectly via AppsByPort but also
@@ -397,5 +433,7 @@ func parseLsof(out []byte) map[PortKey][]PortEntry {
         portsMap[key] = append(portsMap[key], entry)
     }
 
+    // parseLsof returns its map normally; AppsByPort is responsible for
+    // diffing/publishing events so we leave this helper unchanged.
     return portsMap
 }

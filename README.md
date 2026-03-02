@@ -44,6 +44,9 @@ command-line interface.  Highlights:
   still goes wrong.
 - **Process control** — terminate listeners directly from the menu or
   with `--kill`.
+- **Activity events** — the internal API now publishes open/close events for
+  ports; future GUI/CLI enhancements can consume this stream to display
+  realtime activity graphs.
 - **Browser integration** — `--open` or the GUI menu item launches
   `http://localhost:<port>` in the default browser.
 - **Lightweight Go binary** — single executable produced with `go build`;
