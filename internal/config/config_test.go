@@ -78,7 +78,8 @@ func TestProtocolSettingsSaveLoad(t *testing.T) {
     configPathFunc = func() (string, error) { return path, nil }
     defer func() { configPathFunc = old }()
 
-    s := Settings{ShowTCP: false, ShowUDP: true, NativeOnly: true}
+    s := Settings{ShowTCP: false, ShowUDP: true, NativeOnly: true,
+        WebviewWidth: 1024, WebviewHeight: 768, WebviewDebug: true}
     if err := Save(s); err != nil {
         t.Fatalf("save failed: %v", err)
     }
@@ -88,5 +89,31 @@ func TestProtocolSettingsSaveLoad(t *testing.T) {
     }
     if !loaded.NativeOnly {
         t.Errorf("nativeOnly flag not preserved: %v", loaded)
+    }
+    if loaded.WebviewWidth != 1024 || loaded.WebviewHeight != 768 || !loaded.WebviewDebug {
+        t.Errorf("webview settings not preserved: %+v", loaded)
+    }
+}
+
+// ensure webview defaults are applied when missing from file
+func TestWebviewDefaults(t *testing.T) {
+    tmp, err := os.CreateTemp("", "settings*.json")
+    if err != nil {
+        t.Fatal(err)
+    }
+    path := tmp.Name()
+    tmp.Close()
+    defer os.Remove(path)
+
+    old := configPathFunc
+    configPathFunc = func() (string, error) { return path, nil }
+    defer func() { configPathFunc = old }()
+
+    // write an empty JSON object
+    os.WriteFile(path, []byte("{}"), 0644)
+
+    loaded := Load()
+    if loaded.WebviewWidth != 800 || loaded.WebviewHeight != 600 {
+        t.Errorf("expected default webview size 800x600, got %d x %d", loaded.WebviewWidth, loaded.WebviewHeight)
     }
 }

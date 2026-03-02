@@ -78,3 +78,27 @@ func TestNormalizeAddr(t *testing.T) {
         }
     }
 }
+
+// Exercise the setters to ensure they adjust package variables as expected.
+func TestWebviewSetters(t *testing.T) {
+    // save originals
+    ow, oh, od := webviewWidth, webviewHeight, webviewDebug
+    defer func() {
+        webviewWidth = ow
+        webviewHeight = oh
+        webviewDebug = od
+    }()
+
+    SetWebviewSize(0, 0) // should be no-op
+    if webviewWidth != ow || webviewHeight != oh {
+        t.Errorf("expected no change, got %dx%d", webviewWidth, webviewHeight)
+    }
+    SetWebviewSize(640, 480)
+    if webviewWidth != 640 || webviewHeight != 480 {
+        t.Errorf("size not set properly: %dx%d", webviewWidth, webviewHeight)
+    }
+    SetWebviewDebug(true)
+    if !webviewDebug {
+        t.Errorf("debug flag not set")
+    }
+}

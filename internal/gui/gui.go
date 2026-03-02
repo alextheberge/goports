@@ -1,3 +1,6 @@
+//go:build darwin
+// +build darwin
+
 // Package gui implements the macOS menu bar interface.
 package gui
 
@@ -9,12 +12,14 @@ import (
     "os/exec"
     "path/filepath"
     "sort"
+    "strconv"
     "strings"
     "syscall"
     "time"
 
     "github.com/getlantern/systray"
     "github.com/gen2brain/beeep"
+    "github.com/webview/webview"
 
     "github.com/user/goports/internal/config"
     "github.com/user/goports/internal/ports"
@@ -59,6 +64,20 @@ func promptFilter(old string) string {
         if strings.HasPrefix(p, "text returned:") {
             return strings.TrimPrefix(p, "text returned:")
         }
+    }
+    return old
+}
+
+// promptNumber asks the user to enter a numeric value using the AppleScript
+// dialog.  If the response cannot be parsed or the dialog is cancelled, the
+// supplied default is returned unchanged.
+func promptNumber(prompt string, old int) int {
+    resp := promptFilter(fmt.Sprintf("%s (current %d)", prompt, old))
+    if resp == "" {
+        return old
+    }
+    if n, err := strconv.Atoi(resp); err == nil && n > 0 {
+        return n
     }
     return old
 }
@@ -221,7 +240,30 @@ var (
     eventCleanup func()
     eventAddr    string
     eventURL     string // normalized address for browser
+    // these variables control the embedded webview window; they are set by
+    // onReady using the user configuration and may be overridden by the CLI
+    // layer via the exported setters below.
+    webviewWidth  = 800
+    webviewHeight = 600
+    webviewDebug  = false
 )
+
+// SetWebviewSize allows the caller (typically main_darwin) to override the
+// default dimensions for the embedded webview window.  A value of zero leaves
+// the existing setting unchanged.
+func SetWebviewSize(w, h int) {
+    if w > 0 {
+        webviewWidth = w
+    }
+    if h > 0 {
+        webviewHeight = h
+    }
+}
+
+// SetWebviewDebug enables or disables debug mode for the webview.New call.
+func SetWebviewDebug(d bool) {
+    webviewDebug = d
+}
 
 // normalizeAddr converts a listener address (possibly "[::]:port" or
 // "0.0.0.0:port") into a URL string suitable for opening in a browser.
@@ -242,6 +284,16 @@ func normalizeAddr(addr string) string {
 }
 
 func onReady() {
+    // load configuration and apply any stored webview preferences
+    if cfg := config.Load(); true {
+        if cfg.WebviewWidth > 0 {
+            webviewWidth = cfg.WebviewWidth
+        }
+        if cfg.WebviewHeight > 0 {
+            webviewHeight = cfg.WebviewHeight
+        }
+        webviewDebug = cfg.WebviewDebug
+    }
     // configure tray icon and tooltip.  the icon may change based on dark
     // mode; setTrayIcon handles the decision and will be re-run periodically.
     setTrayIcon()
@@ -281,7 +333,21 @@ func onReady() {
                 if url == "" {
                     url = "http://localhost" // fallback
                 }
-                exec.Command("open", url).Run()
+                // try to open inside a webview; fall back to external browser if it
+                // fails. the settings above are populated from the persistent
+                // configuration (and may be overridden by a CLI hook).
+                w := webview.New(webviewDebug)
+                if w != nil {
+                    w.SetTitle("goports Activity")
+                    w.SetSize(webviewWidth, webviewHeight, webview.HintNone)
+                    w.Navigate(url)
+                    w.Run()
+                } else {
+                    // report to user that the embedded view could not be created
+                    beeep.Alert("goports", "Unable to create embedded webview; opening default browser instead.", "")
+                    fmt.Fprintf(os.Stderr, "webview.New returned nil, falling back to external browser\n")
+                    exec.Command("open", url).Run()
+                }
             }
         }()
     }
@@ -295,6 +361,8 @@ func onReady() {
     nativeItem := settingsItem.AddSubMenuItemCheckbox("Use native discovery only", "Do not invoke lsof or other helpers", false)
     filterItem := settingsItem.AddSubMenuItem("Filter...", "Show only ports matching text")
     refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
+    widthItem := settingsItem.AddSubMenuItem("Webview width...", "Pixels for embedded window width")
+    heightItem := settingsItem.AddSubMenuItem("Webview height...", "Pixels for embedded window height")
 
     cfg := config.Load()
     if cfg.StartOnLogin {
@@ -422,6 +490,26 @@ func onReady() {
             }
             refreshItem.SetTitle(fmt.Sprintf("Refresh interval (%ds)", cfg.RefreshInterval))
             _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range widthItem.ClickedCh {
+            neww := promptNumber("Webview width", cfg.WebviewWidth)
+            if neww != cfg.WebviewWidth {
+                cfg.WebviewWidth = neww
+                widthItem.SetTitle(fmt.Sprintf("Webview width (%d)", neww))
+                _ = config.Save(cfg)
+            }
+        }
+    }()
+    go func() {
+        for range heightItem.ClickedCh {
+            newh := promptNumber("Webview height", cfg.WebviewHeight)
+            if newh != cfg.WebviewHeight {
+                cfg.WebviewHeight = newh
+                heightItem.SetTitle(fmt.Sprintf("Webview height (%d)", newh))
+                _ = config.Save(cfg)
+            }
         }
     }()
 

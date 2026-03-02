@@ -75,3 +75,9 @@ func TestSpecFlag(t *testing.T) {
         t.Errorf("expected spec output to contain 'openapi', got %q", out)
     }
 }
+
+// passing webview-specific flags to the CLI should be harmless (they are
+// consumed by the darwin main if and only if GUI mode is requested).
+func TestWebviewFlagsIgnored(t *testing.T) {
+    Run([]string{"--webview-width", "100", "--webview-height", "200", "--webview-debug"})
+}

@@ -16,6 +16,10 @@ type Settings struct {
     ShowTCP              bool              `json:"show_tcp"`
     ShowUDP              bool              `json:"show_udp"`
     NativeOnly           bool              `json:"native_only"` // perform discovery without external tools
+    // preferences for the embedded webview window used by the macOS GUI.
+    WebviewWidth  int  `json:"webview_width,omitempty"`
+    WebviewHeight int  `json:"webview_height,omitempty"`
+    WebviewDebug  bool `json:"webview_debug,omitempty"`
 }
 
 const defaultInterval = 5
@@ -64,6 +68,13 @@ func Load() Settings {
     if !s.ShowTCP && !s.ShowUDP {
         s.ShowTCP = true
         s.ShowUDP = true
+    }
+    // sane defaults for webview
+    if s.WebviewWidth <= 0 {
+        s.WebviewWidth = 800
+    }
+    if s.WebviewHeight <= 0 {
+        s.WebviewHeight = 600
     }
     return s
 }

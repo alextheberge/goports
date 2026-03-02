@@ -165,6 +165,9 @@ applied.)
 --csv                 # output CSV
 --spec                # print OpenAPI spec and exit
 --open PORT           # open http://localhost:PORT in browser
+--webview-width N     # (GUI) force embedded webview width in pixels
+--webview-height N    # (GUI) force embedded webview height in pixels
+--webview-debug       # (GUI) enable webview debug mode for troubleshooting
 ```
 
 #### HTTP API
@@ -278,6 +281,13 @@ login items and interval controls you can now:
   why the checkbox is available – leave it off if you want rich PID/cmdline
   information.
 * The menu bar icon automatically switches between light and dark variants
+
+* **Embedded webview dimensions** – if you prefer a different size for the
+  activity graph window, you can set `webview_width` and `webview_height`
+  in the config file (`~/.config/goports/settings.json`) or launch the GUI
+  with `--webview-width` / `--webview-height`.  A `--webview-debug` flag
+  enables the underlying `webview` library's debug mode (useful when the
+  window fails to appear).
   depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
   technologies such as VoiceOver.

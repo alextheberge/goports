@@ -94,9 +94,21 @@ and implementation effort. Items marked **(high return)** should be tackled firs
   * ✅ once the API was defined, build a simple **local web GUI** that connects to
     it and draws a graph (using Chart.js in `ui.html`).  The interface loads
     historical events on startup, queries `/status` for a baseline count, and
-    shows a live table of current ports with PID/command/bundle details via
-    a `/ports` snapshot.  Controls allow resetting or downloading the data.
-    A menu item in the macOS app opens the UI automatically.
+    shows a live table of current ports with PID/command/bundle details via a
+    `/ports` snapshot.  Controls allow resetting or downloading the data.
+    A menu item in the macOS app opens the UI automatically.  Added search
+    within the table and per‑port modal graphs so each listener can be plotted
+    individually.
+  * ✅ add support for opening the web UI inside a native webview embedded in
+    the menu app (with fallback to the system browser).  The handler now uses
+    `github.com/webview/webview` and `View Activity Graph` launches an
+    internal window on macOS.
+    * ✅ report failure when the webview cannot be created and notify the user
+      before falling back to the system browser.
+    * ✅ expose webview dimensions and debug flag via CLI arguments and saved
+      preferences; added settings menu entries for width/height.
+    * ✅ add darwin build tag to the GUI package so the dependency is ignored on
+      non‑mac platforms.
   * alternative rendering options include a termui dashboard and/or an
     optional CLI flag (`--show-graph`) that spawns a TUI.
   * ensure tests exercise the API adapters and history buffer.
