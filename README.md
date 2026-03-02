@@ -108,10 +108,14 @@ archive produced by `make dist`.
 ### Usage
 
 `goports` enumerates listening sockets via a platform-specific engine.
-On macOS the implementation shells out to `lsof`.  On Linux we fall back to
-`lsof` as well, so the CLI can be cross-compiled and run wherever `lsof`
-is available; Windows support is planned.  The code is structured so that
-native backends may be substituted later without touching rendering logic.
+On macOS the implementation now reads listener information via the
+`sysctl` interface (`net.inet.{tcp,udp}.pcblist`), eliminating the need for
+`netstat` or `lsof`.  Netstat is only consulted as a fallback if the syscall
+fails.  On Linux we similarly default to `lsof` but have a `/proc` parser
+available; that parser could be made primary.  Windows support is planned.
+The code is structured so that fully native backends (e.g. Win32 APIs) may
+replace the external command dependencies later without touching rendering
+logic.
 The CLI output includes a ``PROTO`` column so the protocol is obvious.  When
 running the GUI you will initially need macOS; non-darwin builds are CLI-
 only.  Both GUI and CLI share the same engine; items appear in the menu bar
@@ -157,6 +161,11 @@ login items and interval controls you can now:
 * **Enable Notifications** checkbox appears in each port submenu, allowing
   you to mute alerts for specific ports.  Settings are remembered between
   sessions.
+* **Use native discovery only** checkbox – when checked the GUI will refrain
+  from invoking `lsof`/other helpers and rely purely on built-in APIs.  The
+  implementation reads listener state via sysctl (IPv4 and IPv6) and
+  netstat; no external binaries are executed.  This can reduce external
+  dependencies at the cost of PID/command-line metadata.
 * The menu bar icon automatically switches between light and dark variants
   depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
@@ -175,6 +184,7 @@ The following preferences are persisted across launches:
 These settings are stored in `~/.config/goports/settings.json`.
 
 * `--gui` — launch the menu‑bar GUI (default when no flags are provided).
+* `--native` — avoid calling external tools (like `lsof`); use built-in platform APIs only.  This reduces dependencies but may omit some metadata such as PID/command line.
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
 * `--kill <port>` — terminate all processes listening on `<port>`
   (any protocol).

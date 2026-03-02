@@ -7,6 +7,7 @@ import (
     "net"
     "os/exec"
     "path/filepath"
+    "runtime"
     "strconv"
     "strings"
     "sync"
@@ -184,8 +185,41 @@ func (k PortKey) String() string {
 // discoverPorts, then parses it.  Eventually discoverPorts will have
 // OS-specific implementations so other platforms can be supported without
 // reworking the parsing logic.
+// nativeOnly toggles whether we may shell out to external helpers such as
+// lsof in order to enrich results.  A CLI flag can be used to set this when
+// the user wants a purely native stack.
+var nativeOnly bool
+
+// SetNativeOnly is used by callers (typically CLI/GUI) to force discovery
+// without invoking lsof.  Tests may also toggle it.
+func SetNativeOnly(v bool) {
+    nativeOnly = v
+}
+
+// NativeOnlyEnabled reports whether discovery is restricted to native
+// mechanisms.  It exists primarily for tests and CLI/GUI integration.
+func NativeOnlyEnabled() bool {
+    return nativeOnly
+}
+
 func AppsByPort() map[PortKey][]PortEntry {
     portsMap := make(map[PortKey][]PortEntry)
+
+    // darwin has a native path using sysctl; if that fails we try netstat
+    // as a backup before falling back to lsof.  The nativeOnly flag prevents
+    // us from ever invoking lsof.
+    if runtime.GOOS == "darwin" {
+        if m, err := appsBySysctl(); err == nil && len(m) > 0 {
+            return m
+        }
+        if m, err := appsByNetstat(); err == nil && len(m) > 0 {
+            return m
+        }
+        if nativeOnly {
+            return portsMap
+        }
+        // fall through to lsof if both native attempts failed
+    }
 
     out, err := discoverPorts()
     if err != nil {

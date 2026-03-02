@@ -8,6 +8,9 @@ import (
 
 func TestParseLsof(t *testing.T) {
     // stub out external dependencies to make the test deterministic
+    // clear caches so prior tests cannot influence our expectations
+    hostCache = sync.Map{}
+    bundleCache = sync.Map{}
     lookupAddrFunc = func(addr string) ([]string, error) { return []string{addr + ".host"}, nil }
     originalBundle := bundleIDFunc
     bundleIDFunc = func(pid int32) string { return "bundle" }
@@ -103,5 +106,23 @@ func TestParseHexIP(t *testing.T) {
     // IPv6 loopback corresponds to 00000000000000000000000000000001 in /proc/net.
     if parseHexIP("00000000000000000000000000000001") != "::1" {
         t.Error("ipv6 parse failed")
+    }
+}
+
+func TestParseNetstat(t *testing.T) {
+    sample := `
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
+tcp4       0      0  *.80                   *.*                    LISTEN
+udp4       0      0  127.0.0.1.53           *.*                    
+`
+    m := parseNetstat([]byte(sample))
+    if len(m) != 2 {
+        t.Fatalf("expected 2 entries, got %d", len(m))
+    }
+    if _, ok := m[PortKey{Protocol: "tcp4", Port: 80}]; !ok {
+        t.Error("missing tcp entry")
+    }
+    if _, ok := m[PortKey{Protocol: "udp4", Port: 53}]; !ok {
+        t.Error("missing udp entry")
     }
 }

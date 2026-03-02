@@ -78,12 +78,15 @@ func TestProtocolSettingsSaveLoad(t *testing.T) {
     configPathFunc = func() (string, error) { return path, nil }
     defer func() { configPathFunc = old }()
 
-    s := Settings{ShowTCP: false, ShowUDP: true}
+    s := Settings{ShowTCP: false, ShowUDP: true, NativeOnly: true}
     if err := Save(s); err != nil {
         t.Fatalf("save failed: %v", err)
     }
     loaded := Load()
     if loaded.ShowTCP || !loaded.ShowUDP {
         t.Errorf("save/load mismatch: %v", loaded)
+    }
+    if !loaded.NativeOnly {
+        t.Errorf("nativeOnly flag not preserved: %v", loaded)
     }
 }

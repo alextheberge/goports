@@ -191,6 +191,7 @@ func onReady() {
     notifItem := settingsItem.AddSubMenuItemCheckbox("Enable Notifications", "Notify when ports open/close", false)
     tcpItem := settingsItem.AddSubMenuItemCheckbox("Show TCP", "Display TCP listening ports", true)
     udpItem := settingsItem.AddSubMenuItemCheckbox("Show UDP", "Display UDP listeners", true)
+    nativeItem := settingsItem.AddSubMenuItemCheckbox("Use native discovery only", "Do not invoke lsof or other helpers", false)
     filterItem := settingsItem.AddSubMenuItem("Filter...", "Show only ports matching text")
     refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
 
@@ -214,6 +215,11 @@ func onReady() {
         udpItem.Check()
     } else {
         udpItem.Uncheck()
+    }
+    if cfg.NativeOnly {
+        nativeItem.Check()
+    } else {
+        nativeItem.Uncheck()
     }
     if cfg.SearchFilter != "" {
         filterItem.SetTitle(fmt.Sprintf("Filter: %s", cfg.SearchFilter))
@@ -242,6 +248,18 @@ func onReady() {
             } else {
                 setStartAtLogin(false)
                 startItem.Uncheck()
+            }
+            _ = config.Save(cfg)
+        }
+    }()
+    go func() {
+        for range nativeItem.ClickedCh {
+            cfg.NativeOnly = !cfg.NativeOnly
+            ports.SetNativeOnly(cfg.NativeOnly)
+            if cfg.NativeOnly {
+                nativeItem.Check()
+            } else {
+                nativeItem.Uncheck()
             }
             _ = config.Save(cfg)
         }
@@ -428,7 +446,11 @@ func tickerLoop() {
 
             group, exists := portMenu[key]
             if !exists {
-                desc := fmt.Sprintf("%s listening on %s%s", entries[0].Name, entries[0].Host, func() string { if entries[0].AppBundle != "" { return " (" + entries[0].AppBundle + ")" } return "" }())
+                var suffix string
+                if entries[0].AppBundle != "" {
+                    suffix = " (" + entries[0].AppBundle + ")"
+                }
+                desc := fmt.Sprintf("%s listening on %s%s", entries[0].Name, entries[0].Host, suffix)
                 parent := systray.AddMenuItem(title, desc)
                 // attempt to attach application icon if available
                 var setIcon bool

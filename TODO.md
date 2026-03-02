@@ -18,11 +18,18 @@ and implementation effort. Items marked **(high return)** should be tackled firs
    * abstraction layer (`discoverPorts`) added so platform-specific
      implementations can replace `lsof` in future.
    * Linux backend currently shells out to `lsof`, providing working CLI
-     support.  Windows still pending.
+     support.  A `/proc` parser exists and can be enabled later.  Windows
+     still pending.
+   * macOS now uses a lightweight `netstat`-based parser with lsof fallback;
+     recent work added a direct `sysctl` implementation that enumerates both
+     IPv4 and IPv6 listeners, plus a `--native`/GUI checkbox to disable lsof
+     entirely (metadata may be omitted).  PID/name lookup is still optional
+     via lsof, and sysctl results are cached; next step is replicating PID
+     lookup natively and adding a Windows counterpart.
    * platform tagged mains created; non-darwin builds yield CLI-only binary
      avoiding GUI dependencies.
-   * Next step: implement native enumeration on Linux/Windows (optional once
-     `lsof` fallback is satisfactory).
+   * Next step: implement fully native enumeration on each OS (sysctl,
+     Win32) and remove external command dependencies.
 
 ## 2. GUI polish & usability
 

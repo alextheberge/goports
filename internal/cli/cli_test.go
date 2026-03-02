@@ -40,3 +40,12 @@ func TestApplyFilters(t *testing.T) {
         t.Errorf("family filter failed: %v", got)
     }
 }
+
+func TestNativeFlagSetsPortPackage(t *testing.T) {
+    // start with false
+    ports.SetNativeOnly(false)
+    Run([]string{"--native"})
+    if !ports.NativeOnlyEnabled() {
+        t.Errorf("expected nativeOnly to be set by CLI flag")
+    }
+}

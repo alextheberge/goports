@@ -108,8 +108,11 @@ func appsByProc() (map[PortKey][]PortEntry, error) {
             if err != nil || portVal == 0 {
                 continue
             }
-            entry := PortEntry{Protocol: file.proto, Port: 0}
+            entry := PortEntry{Protocol: file.proto, Port: 0, Family: "IPv4"}
             portKey := PortKey{Protocol: file.proto, Port: int(portVal)}
+            if strings.Contains(file.path, "6") {
+                entry.Family = "IPv6"
+            }
 
             // resolve pid if we have an inode mapping
             if pid, ok := inodeToPid[inode]; ok {

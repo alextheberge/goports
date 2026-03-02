@@ -37,6 +37,7 @@ func Run(args []string) {
     var filterName string
     var filterBundle string
     var filterFamily string
+    var nativeOnly bool
 
     fs := flag.NewFlagSet("goports", flag.ExitOnError)
     fs.BoolVar(&watch, "watch", false, "refresh every 5s live")
@@ -52,8 +53,14 @@ func Run(args []string) {
     fs.StringVar(&filterFamily, "family", "", "only show entries with address family IPv4 or IPv6")
     fs.BoolVar(&jsonOut, "json", false, "output structured JSON")
     fs.BoolVar(&csvOut, "csv", false, "output CSV (PROTO,PORT,HOST,...)")
+    fs.BoolVar(&nativeOnly, "native", false, "do not invoke lsof; use native discovery only")
 
     _ = fs.Parse(args)
+
+    // apply the native-only flag to the discovery package
+    if nativeOnly {
+        ports.SetNativeOnly(true)
+    }
 
     // kill actions take precedence.  we support port, name, and bundle
     // matching.  a signal name can be supplied via --signal.

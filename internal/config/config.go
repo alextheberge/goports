@@ -15,6 +15,7 @@ type Settings struct {
     BlockedNotifications map[string]bool   `json:"blocked_notifications,omitempty"`
     ShowTCP              bool              `json:"show_tcp"`
     ShowUDP              bool              `json:"show_udp"`
+    NativeOnly           bool              `json:"native_only"` // perform discovery without external tools
 }
 
 const defaultInterval = 5
