@@ -7,6 +7,7 @@ import (
     "net"
     "os/exec"
     "path/filepath"
+    "strconv"
     "strings"
     "sync"
     "time"
@@ -143,6 +144,30 @@ func runCmd(name string, args ...string) ([]byte, error) {
 type PortKey struct {
     Protocol string // e.g. "tcp", "udp"
     Port     int
+}
+
+// parseHexIP converts the /proc/net hex IP representation to a numeric
+// address string.  IPv6 entries are 32 hex digits.
+func parseHexIP(hex string) string {
+    if len(hex) == 8 {
+        // IPv4 little-endian
+        b := make([]byte, 4)
+        for i := 0; i < 4; i++ {
+            x, _ := strconv.ParseUint(hex[i*2:i*2+2], 16, 8)
+            b[3-i] = byte(x)
+        }
+        return net.IP(b).String()
+    }
+    if len(hex) == 32 {
+        // IPv6
+        b := make([]byte, 16)
+        for i := 0; i < 16; i++ {
+            x, _ := strconv.ParseUint(hex[i*2:i*2+2], 16, 8)
+            b[i] = byte(x)
+        }
+        return net.IP(b).String()
+    }
+    return ""
 }
 
 func (k PortKey) String() string {

@@ -95,3 +95,13 @@ func TestRunCmdTimeout(t *testing.T) {
         t.Errorf("expected error due to timeout")
     }
 }
+
+func TestParseHexIP(t *testing.T) {
+    if parseHexIP("0100007F") != "127.0.0.1" {
+        t.Error("ipv4 parse failed")
+    }
+    // IPv6 loopback corresponds to 00000000000000000000000000000001 in /proc/net.
+    if parseHexIP("00000000000000000000000000000001") != "::1" {
+        t.Error("ipv6 parse failed")
+    }
+}
