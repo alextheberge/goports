@@ -19,8 +19,9 @@ and implementation effort. Items marked **(high return)** should be tackled firs
      implementations can replace `lsof` in future.
    * Linux backend currently shells out to `lsof`, providing working CLI
      support.  A `/proc` parser exists and can be enabled later; it now also
-     attaches PID/name/command-line information natively.  Windows still
-     pending.
+     attaches PID/name/command-line information natively.
+   * Windows backend now uses the IP Helper API for fully native enumeration
+     of TCP/UDP listeners and retrieves process names via `QueryFullProcessImageName`.
    * macOS now uses a lightweight `netstat`-based parser with lsof fallback;
      recent work added a direct `sysctl` implementation that enumerates both
      IPv4 and IPv6 listeners, plus a `--native`/GUI checkbox to disable lsof

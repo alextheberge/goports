@@ -231,6 +231,16 @@ func AppsByPort() map[PortKey][]PortEntry {
             return portsMap
         }
     }
+    // windows uses Win32 APIs to enumerate listeners; appsByWin lives in
+    // ports_windows_impl.go and is only available on that platform.
+    if runtime.GOOS == "windows" {
+        if m, err := appsByWin(); err == nil && len(m) > 0 {
+            return m
+        }
+        if nativeOnly {
+            return portsMap
+        }
+    }
 
     out, err := discoverPorts()
     if err != nil {

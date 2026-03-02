@@ -114,8 +114,11 @@ process file descriptors via `libproc`, so PIDs, names and command-line
 paths are obtained without ever spawning `netstat`/`lsof`.  Netstat is only
 consulted as a fallback if the syscall fails.  On Linux we likewise parse
 `/proc/net/*` and then inspect `/proc/<pid>/fd` entries to map sockets back to
-processes, populating PID, command line and executable name.  The `lsof`
-command remains available as a last resort.  Windows support is planned.
+processes, populating PID, command line and executable name.  On Windows the
+backend uses the IP Helper API (`GetExtendedTcpTable`/`GetExtendedUdpTable`)
+plus `QueryFullProcessImageName` to provide equivalent native data.  In all
+cases, falling back to the appropriate system tool (lsof/netstat) is still
+possible if the native call fails.
 The code is structured so that fully native backends (e.g. Win32 APIs) may
 replace the external command dependencies later without touching rendering
 logic.
