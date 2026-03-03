@@ -37,6 +37,21 @@ void goports_webview_position(void *winPtr, int x, int y) {
     [w setFrame:dest display:YES animate:YES];
     [w makeKeyAndOrderFront:nil];
 }
+
+// goports_webview_get_frame returns the current frame of the window in the
+// coordinate system used by our configuration (x from left, y from top).  All
+// pointers are optional; missing values are left unchanged.
+void goports_webview_get_frame(void *winPtr, int *x, int *y, int *w, int *h) {
+    NSWindow *wptr = (NSWindow*)winPtr;
+    if (wptr == nil) return;
+    NSRect f = [wptr frame];
+    NSScreen *s = [NSScreen mainScreen];
+    NSRect sf = [s frame];
+    if (x) *x = (int)f.origin.x;
+    if (w) *w = (int)f.size.width;
+    if (h) *h = (int)f.size.height;
+    if (y) *y = (int)(sf.size.height - f.origin.y - f.size.height);
+}
 */
 import "C"
 
@@ -53,6 +68,7 @@ import (
     "strings"
     "syscall"
     "time"
+    "unsafe"
 
     "github.com/getlantern/systray"
     "github.com/gen2brain/beeep"
@@ -132,6 +148,21 @@ func logf(format string, a ...interface{}) {
     }
 }
 
+// getFrame returns the current window frame values.  It is a variable so
+// unit tests may substitute a fake implementation without linking the C
+// helper.
+var getFrame = func(ptr unsafe.Pointer) (x, y, w, h int) {
+    var cx, cy, cw, ch C.int
+    C.goports_webview_get_frame(ptr, &cx, &cy, &cw, &ch)
+    return int(cx), int(cy), int(cw), int(ch)
+}
+
+// positionWindow is the function used to move/animate the window.  tests
+// can replace it with a no-op to avoid dereferencing fake pointers.
+var positionWindow = func(ptr unsafe.Pointer, x, y int) {
+    C.goports_webview_position(ptr, C.int(x), C.int(y))
+}
+
 // OpenWebview is like handleGraphClick but intended for a standalone process
 // (child mode).  It only attempts to create the webview once and returns any
 // error to the caller so the process can exit appropriately.
@@ -165,14 +196,28 @@ func OpenWebview(url string) error {
     // cannot sit behind other applications.
     if ptr := w.Window(); ptr != nil {
         if webviewX >= 0 && webviewY >= 0 {
-            C.goports_webview_position(ptr, C.int(webviewX), C.int(webviewY))
+            positionWindow(ptr, webviewX, webviewY)
         } else {
             // still bring it to front even if we don't move it explicitly
-            C.goports_webview_position(ptr, C.int(webviewX), C.int(webviewY))
+            positionWindow(ptr, webviewX, webviewY)
         }
     }
     logf("webview.Run about to execute\n")
     w.Run()
+    // after the window closes record its final geometry so future openings
+    // can restore the size/position automatically.  we do this in the child
+    // because the parent has no easy way to inspect the webview pointer.
+    if ptr := w.Window(); ptr != nil {
+        if x, y, ww, hh := getFrame(ptr); ww > 0 && hh > 0 {
+            cfg := config.Load()
+            cfg.WebviewWidth = ww
+            cfg.WebviewHeight = hh
+            cfg.WebviewX = x
+            cfg.WebviewY = y
+            _ = config.Save(cfg)
+            logf("saved webview geometry %dx%d at %d,%d\n", ww, hh, x, y)
+        }
+    }
     logf("webview.Run returned, exiting child\n")
     return nil
 }

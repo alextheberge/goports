@@ -311,6 +311,11 @@ webview.Run about to execute
 webview.Run returned, exiting child
 ```
 
+On non‑macOS builds the `internal/gui` package is a no-op stub – there is no
+menu bar or embedded webview, but the HTTP API still runs and you can open
+the activity graph manually in your browser (`--browse` flag).  A proper
+tray‑icon GUI for Linux/Windows is intended for a future release.
+
 The helper now also attempts to place the window at sensible coordinates –
 by default it sits about 100 points from the left edge and 50 points below
 the top of the main display (i.e. just under the menu bar).  It will then
@@ -344,7 +349,7 @@ The following preferences are persisted across launches:
 
 These settings are stored in `~/.config/goports/settings.json`.
 
-* `--gui` — launch the menu‑bar GUI (default when no flags are provided).
+* `--gui` — launch the menu‑bar GUI (default when no flags are provided).  Ignored on non‑macOS builds where only the CLI/API is available.
 * `--native` — avoid calling external tools (like `lsof`); use built-in
   platform APIs only.  See the discussion above about native discovery
   limitations: metadata may still be missing if the kernel refuses to expose it.
@@ -352,7 +357,8 @@ These settings are stored in `~/.config/goports/settings.json`.
   can be used to diagnose or simulate failures when running from a terminal.
 * `--watch`, `-w` — refresh the CLI output every 5 seconds.
 * `--kill <port>` — terminate all processes listening on `<port>`
-  (any protocol).
+  (any protocol).  On Unix-like systems this sends the chosen signal, while
+  on Windows `taskkill` is invoked.
 * `--kill-name <substr>` — terminate processes whose command name contains
   `<substr>`.
 * `--kill-bundle <substr>` — terminate processes whose bundle identifier

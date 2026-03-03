@@ -37,7 +37,9 @@ and implementation effort. Items marked **(high return)** should be tackled firs
    * Native-only checkbox/flag documented and elaborated in README.  Debug
      logging (`GOPORTS_DEBUG`) added.
    * platform-tagged mains created; non-darwin builds produce CLI-only
-     binaries to simplify cross-platform support.
+     binaries to simplify cross-platform support.  GUI package now compiles
+     on all OSes (stubbed on non-mac) as a first step toward Linux/Windows
+     tray clients.
    * Next step: further harden native paths, implement caching on Linux/Win,
      and remove external tool dependencies entirely where possible.
 

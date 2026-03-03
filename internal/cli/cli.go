@@ -121,7 +121,7 @@ func Run(args []string) {
                 if killBundle != "" && !strings.Contains(entry.AppBundle, killBundle) {
                     continue
                 }
-                if err := syscall.Kill(int(entry.Pid), sig); err == nil {
+                if err := killPID(int(entry.Pid), sig); err == nil {
                     fmt.Printf("Killed PID %d on %s (%s)\n", entry.Pid, key, sig)
                 } else {
                     fmt.Fprintf(os.Stderr, "failed to kill PID %d on %s: %v\n", entry.Pid, key, err)

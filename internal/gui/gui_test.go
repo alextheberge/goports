@@ -1,12 +1,15 @@
 package gui
 
 import (
+    "os"
+    "path/filepath"
     "strings"
     "testing"
     "os/exec"
     "unsafe"
 
     "github.com/webview/webview"
+    "github.com/user/goports/internal/config"
     "github.com/user/goports/internal/ports"
 )
 
@@ -156,16 +159,19 @@ func TestHandleGraphClickFailure(t *testing.T) {
 // stubType implements the full webview.WebView interface with no-op
 // methods.  Run() is the only one that does anything; we record whether it
 // was invoked so tests can assert that OpenWebview actually executed the
-// loop.
+// loop.  A windowPtr field allows tests to specify what pointer
+// Window() should return.
 type stubType struct{
-    ran bool
+    ran       bool
+    windowPtr unsafe.Pointer
 }
+
+func (s *stubType) Window() unsafe.Pointer { return s.windowPtr }
 
 func (s *stubType) Run()                   { s.ran = true }
 func (s *stubType) Terminate()             {}
 func (s *stubType) Dispatch(f func())      {}
 func (s *stubType) Destroy()               {}
-func (s *stubType) Window() unsafe.Pointer { return nil }
 func (s *stubType) SetTitle(string)        {}
 func (s *stubType) SetSize(w, h int, hint webview.Hint) {}
 func (s *stubType) Navigate(url string)    {}
@@ -193,6 +199,52 @@ func TestOpenWebview(t *testing.T) {
         t.Error("Run() was not called on the stubbed webview")
     }
 
-    // restore original
+    // case3: geometry persistence
+    // prepare a temporary config file & stub getFrame
+    // disable actual positioning so we don't crash on fake pointer
+    origPos := positionWindow
+    positionWindow = func(ptr unsafe.Pointer, x, y int) {}
+    defer func() { positionWindow = origPos }()
+    tmp, err := os.CreateTemp("", "settings*.json")
+    if err != nil {
+        t.Fatal(err)
+    }
+    path := tmp.Name()
+    tmp.Close()
+    defer os.Remove(path)
+
+    // point configuration to our temp home directory
+    oldHome := os.Getenv("HOME")
+    os.Setenv("HOME", filepath.Dir(path))
+    defer os.Setenv("HOME", oldHome)
+
+    // stub webview that returns a fake pointer
+    const fakePtr = uintptr(0xdeadbeef)
+    stub2 := &stubType{ran: false, windowPtr: unsafe.Pointer(fakePtr)}
+    webviewNew = func(debug bool) webview.WebView { return stub2 }
+
+    // override getFrame to return known geometry
+    origGet := getFrame
+    getFrame = func(ptr unsafe.Pointer) (x, y, w, h int) {
+        if uintptr(ptr) != fakePtr {
+            t.Fatalf("unexpected pointer %v", ptr)
+        }
+        return 12, 34, 200, 150
+    }
+    defer func() { getFrame = origGet }()
+
+    if err := OpenWebview("http://foo"); err != nil {
+        t.Errorf("unexpected error: %v", err)
+    }
+    // read config and check values
+    loaded := config.Load()
+    if loaded.WebviewX != 12 || loaded.WebviewY != 34 {
+        t.Errorf("position not saved: %+v", loaded)
+    }
+    if loaded.WebviewWidth != 200 || loaded.WebviewHeight != 150 {
+        t.Errorf("size not saved: %+v", loaded)
+    }
+
+    // restore originals
     webviewNew = origNew
 }

@@ -12,7 +12,12 @@ import (
 // non-darwin builds only provide the CLI; GUI dependencies are excluded so
 // cross-compiles do not fail due to systray.
 func main() {
-    // just forward everything to the CLI runner; the --gui flag is ignored
-    // because no GUI exists on this platform.
+    // if user requested GUI mode on non-darwin we warn and fall back.
+    for _, a := range os.Args[1:] {
+        if a == "--gui" {
+            os.Stderr.WriteString("warning: GUI not available on this platform, running CLI instead\n")
+            break
+        }
+    }
     cli.Run(os.Args[1:])
 }
