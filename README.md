@@ -313,11 +313,11 @@ webview.Run returned, exiting child
 
 The helper now also attempts to place the window at sensible coordinates –
 by default it sits about 100 points from the left edge and 50 points below
-the top of the main display (i.e. just under the menu bar).  After moving
-it the helper activates the app (`NSApplication.activateIgnoringOtherApps`)
-so the window will float above other applications such as VSCode.  You can
-customise the position via the `--webview-x`/`--webview-y` CLI flags or in
-the Preferences menu; `y` is interpreted as a distance from the *top* of the
+the top of the main display (i.e. just under the menu bar).  It will then
+slide into position with a short animation and activate the app so the
+window floats above other applications such as VSCode.  You can customise
+the position via the `--webview-x`/`--webview-y` CLI flags or in the
+Preferences menu; `y` is interpreted as a distance from the *top* of the
 screen.  The settings are persisted along with the width/height/title.  If
 the helper still refuses to appear the log will contain panic information.
 If the child cannot be started a notification is shown, the menu item is

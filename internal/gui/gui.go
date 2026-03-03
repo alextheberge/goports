@@ -29,11 +29,12 @@ void goports_webview_position(void *winPtr, int x, int y) {
     } else {
         newY = screenFrame.size.height - winFrame.size.height - 50;
     }
-    NSPoint pt = NSMakePoint(newX, newY);
-    [w setFrameOrigin:pt];
-    // ensure our process becomes active so the window really floats above
-    // others (VSCode was staying on top otherwise when already focused).
+    NSRect dest = NSMakeRect(newX, newY, winFrame.size.width, winFrame.size.height);
+    // animate the move so the window slides into place rather than popping up
+    // abruptly; Cocoa will also implicitly show the window as part of the
+    // animation if it's not already visible.
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+    [w setFrame:dest display:YES animate:YES];
     [w makeKeyAndOrderFront:nil];
 }
 */

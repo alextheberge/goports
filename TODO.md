@@ -116,7 +116,8 @@ and implementation effort. Items marked **(high return)** should be tackled firs
       the WebKit view to avoid silent, non‑appearing windows (this was the
       cause of earlier mysterious failures).  Added support for positioning
       the child window (`x` from left, `y` from top), bring-it-to-front, and
-      actively activate the helper so the view floats above other apps.
+      actively activate the helper so the view floats above other apps.  The
+      window now animates into place on open rather than appearing abruptly.
     * ✅ add darwin build tag to the GUI package so the dependency is ignored on
       non‑mac platforms.
   * alternative rendering options include a termui dashboard and/or an
