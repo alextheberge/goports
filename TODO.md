@@ -107,6 +107,16 @@ and implementation effort. Items marked **(high return)** should be tackled firs
       before falling back to the system browser.
     * ✅ expose webview dimensions and debug flag via CLI arguments and saved
       preferences; added settings menu entries for width/height.
+    * ✅ allow customization of the embedded window title and provide a reset
+      option in the settings menu.
+    * ✅ robustly handle webview creation by spawning a separate helper
+      process (`--webview-child`) so the main menu app cannot crash.  On
+      failure the menu item is disabled and the browser is opened; diagnostics
+      are logged.  The helper now locks its OS thread before creating/running
+      the WebKit view to avoid silent, non‑appearing windows (this was the
+      cause of earlier mysterious failures).  Added support for positioning
+      the child window (`x` from left, `y` from top), bring-it-to-front, and
+      actively activate the helper so the view floats above other apps.
     * ✅ add darwin build tag to the GUI package so the dependency is ignored on
       non‑mac platforms.
   * alternative rendering options include a termui dashboard and/or an

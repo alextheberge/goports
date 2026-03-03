@@ -17,9 +17,12 @@ type Settings struct {
     ShowUDP              bool              `json:"show_udp"`
     NativeOnly           bool              `json:"native_only"` // perform discovery without external tools
     // preferences for the embedded webview window used by the macOS GUI.
-    WebviewWidth  int  `json:"webview_width,omitempty"`
-    WebviewHeight int  `json:"webview_height,omitempty"`
-    WebviewDebug  bool `json:"webview_debug,omitempty"`
+    WebviewWidth  int    `json:"webview_width,omitempty"`
+    WebviewHeight int    `json:"webview_height,omitempty"`
+    WebviewDebug  bool   `json:"webview_debug,omitempty"`
+    WebviewTitle  string `json:"webview_title,omitempty"`
+    WebviewX      int    `json:"webview_x,omitempty"`
+    WebviewY      int    `json:"webview_y,omitempty"`
 }
 
 const defaultInterval = 5
@@ -36,6 +39,13 @@ var configPathFunc = func() (string, error) {
         return "", err
     }
     return filepath.Join(cfgDir, "settings.json"), nil
+}
+
+// Path returns the filesystem path where settings are stored.  It is
+// exported for use by other packages (e.g. the GUI) that need to write
+// diagnostic log files alongside the settings.
+func Path() (string, error) {
+    return configPathFunc()
 }
 
 func configPath() (string, error) {
@@ -76,6 +86,11 @@ func Load() Settings {
     if s.WebviewHeight <= 0 {
         s.WebviewHeight = 600
     }
+    if s.WebviewTitle == "" {
+        s.WebviewTitle = "goports Activity"
+    }
+    // position defaults are allowed to be zero; leave x/y alone if negative
+    // (we treat negatives as unspecified).
     return s
 }
 

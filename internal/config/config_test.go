@@ -79,7 +79,8 @@ func TestProtocolSettingsSaveLoad(t *testing.T) {
     defer func() { configPathFunc = old }()
 
     s := Settings{ShowTCP: false, ShowUDP: true, NativeOnly: true,
-        WebviewWidth: 1024, WebviewHeight: 768, WebviewDebug: true}
+        WebviewWidth: 1024, WebviewHeight: 768, WebviewDebug: true, WebviewTitle: "custom",
+        WebviewX: 123, WebviewY: 456}
     if err := Save(s); err != nil {
         t.Fatalf("save failed: %v", err)
     }
@@ -92,6 +93,12 @@ func TestProtocolSettingsSaveLoad(t *testing.T) {
     }
     if loaded.WebviewWidth != 1024 || loaded.WebviewHeight != 768 || !loaded.WebviewDebug {
         t.Errorf("webview settings not preserved: %+v", loaded)
+    }
+    if loaded.WebviewTitle != "custom" {
+        t.Errorf("webview title not preserved: %q", loaded.WebviewTitle)
+    }
+    if loaded.WebviewX != 123 || loaded.WebviewY != 456 {
+        t.Errorf("webview position not preserved: %d,%d", loaded.WebviewX, loaded.WebviewY)
     }
 }
 
@@ -115,5 +122,8 @@ func TestWebviewDefaults(t *testing.T) {
     loaded := Load()
     if loaded.WebviewWidth != 800 || loaded.WebviewHeight != 600 {
         t.Errorf("expected default webview size 800x600, got %d x %d", loaded.WebviewWidth, loaded.WebviewHeight)
+    }
+    if loaded.WebviewX != 0 || loaded.WebviewY != 0 {
+        t.Errorf("expected default webview position 0,0, got %d,%d", loaded.WebviewX, loaded.WebviewY)
     }
 }

@@ -4,6 +4,41 @@
 // Package gui implements the macOS menu bar interface.
 package gui
 
+/*
+#cgo CFLAGS: -mmacosx-version-min=10.12 -x objective-c
+#cgo LDFLAGS: -framework Cocoa
+#import <Cocoa/Cocoa.h>
+
+// goports_webview_position moves the given NSWindow to the specified (x,y)
+// position and makes it frontmost.  The `x` value is an offset from the left
+// edge of the screen.  The `y` value is treated as a distance from the top of
+// the main display (measured in points) – this makes it easy to request a
+// window that sits just beneath the menu bar.  A negative `y` means "use the
+// default" (roughly 50 points from the top).  The function computes the
+// appropriate origin taking the window's height into account.
+void goports_webview_position(void *winPtr, int x, int y) {
+    NSWindow *w = (NSWindow*)winPtr;
+    if (w == nil) return;
+    NSScreen *s = [NSScreen mainScreen];
+    NSRect screenFrame = [s frame];
+    NSRect winFrame = [w frame];
+    CGFloat newX = x < 0 ? 100 : x;
+    CGFloat newY;
+    if (y >= 0) {
+        newY = screenFrame.size.height - winFrame.size.height - y;
+    } else {
+        newY = screenFrame.size.height - winFrame.size.height - 50;
+    }
+    NSPoint pt = NSMakePoint(newX, newY);
+    [w setFrameOrigin:pt];
+    // ensure our process becomes active so the window really floats above
+    // others (VSCode was staying on top otherwise when already focused).
+    [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+    [w makeKeyAndOrderFront:nil];
+}
+*/
+import "C"
+
 import (
     "fmt"
     "net"
@@ -11,6 +46,7 @@ import (
     "os"
     "os/exec"
     "path/filepath"
+    "runtime"
     "sort"
     "strconv"
     "strings"
@@ -24,6 +60,121 @@ import (
     "github.com/user/goports/internal/config"
     "github.com/user/goports/internal/ports"
 )
+
+// graphMenuItem abstracts the minimal subset of systray.MenuItem that we
+// interact with when opening the activity graph.  The indirection allows
+// unit tests to substitute a fake without pulling in the full systray
+// machinery.
+type graphMenuItem interface {
+    Disable()
+    SetTitle(string)
+}
+
+// handleGraphClick encapsulates the behaviour that occurs when the user
+// selects the "View Activity Graph" menu item.  It is factored out so
+// unit tests can exercise the failure path without needing to spin up the
+// entire systray environment.
+// execCommand is a variable so tests can stub out command execution.
+var execCommand = exec.Command
+
+func handleGraphClick(item graphMenuItem, url string) {
+    logf("graph menu clicked, eventURL=%s\n", url)
+    if url == "" {
+        url = "http://localhost"
+    }
+    // spawn a helper process that creates the webview on its own main thread.
+    cmd := execCommand(os.Args[0], "--webview-child", url)
+    // forward any output from the child to our stderr so logs are visible
+    cmd.Stdout = os.Stderr
+    cmd.Stderr = os.Stderr
+    if err := cmd.Start(); err != nil {
+        // fall back to external browser and disable menu item
+        if alertErr := beeep.Alert("goports", "Unable to spawn embedded webview; opening default browser instead.", ""); alertErr != nil {
+            logf("beeep.Alert error: %v\n", alertErr)
+        }
+        logf("starting child webview process failed: %v\n", err)
+        item.Disable()
+        item.SetTitle("Activity Graph (unavailable)")
+        if err := execCommand("open", url).Run(); err != nil {
+            logf("open command failed: %v\n", err)
+        }
+        return
+    }
+    // asynchronously wait for the helper to exit and log any error.
+    go func() {
+        if err := cmd.Wait(); err != nil {
+            logf("webview child exited with error: %v\n", err)
+        } else {
+            logf("webview child exited normally\n")
+        }
+    }()
+}
+
+// webviewNew is a package-level variable pointing at webview.New.  tests can
+// replace it to simulate failure.
+var webviewNew = webview.New
+
+// logf writes to stderr and also appends the same message to a
+// log file under the config directory.  This ensures diagnostics are
+// available even when the app is started from the Dock or a launchd job.
+func logf(format string, a ...interface{}) {
+    msg := fmt.Sprintf(format, a...)
+    fmt.Fprint(os.Stderr, msg)
+    // attempt to append to log file but ignore errors
+    if path, err := config.Path(); err == nil {
+        logPath := path + ".log"
+        f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+        if err == nil {
+            f.WriteString(msg)
+            f.Close()
+        }
+    }
+}
+
+// OpenWebview is like handleGraphClick but intended for a standalone process
+// (child mode).  It only attempts to create the webview once and returns any
+// error to the caller so the process can exit appropriately.
+func OpenWebview(url string) error {
+    logf("webview child starting with URL=%s\n", url)
+    if url == "" {
+        url = "http://localhost"
+    }
+    // as with the menu process we must lock the OS thread before creating or
+    // running the webview.  Failing to do so will generally result in no
+    // window appearing, which is exactly the silent failure we were
+    // diagnosing earlier.
+    runtime.LockOSThread()
+    defer runtime.UnlockOSThread()
+
+    w := webviewNew(webviewDebug)
+    if w == nil {
+        logf("webviewNew returned nil in child\n")
+        return fmt.Errorf("webview.New returned nil")
+    }
+    defer func() {
+        if r := recover(); r != nil {
+            logf("panic inside webview child: %v\n", r)
+        }
+    }()
+    w.SetTitle(webviewTitle)
+    w.SetSize(webviewWidth, webviewHeight, webview.HintNone)
+    w.Navigate(url)
+    // position the window if user/config provided coordinates; otherwise
+    // leave defaults.  The CGO helper also makes the window key/front so it
+    // cannot sit behind other applications.
+    if ptr := w.Window(); ptr != nil {
+        if webviewX >= 0 && webviewY >= 0 {
+            C.goports_webview_position(ptr, C.int(webviewX), C.int(webviewY))
+        } else {
+            // still bring it to front even if we don't move it explicitly
+            C.goports_webview_position(ptr, C.int(webviewX), C.int(webviewY))
+        }
+    }
+    logf("webview.Run about to execute\n")
+    w.Run()
+    logf("webview.Run returned, exiting child\n")
+    return nil
+}
 
 // portMenuGroup holds the menu items associated with a particular port.
 
@@ -115,20 +266,20 @@ func iconForBundle(bundle string) []byte {
     // locate app path via mdfind
     out, err := exec.Command("mdfind", "kMDItemCFBundleIdentifier == '"+bundle+"'").Output()
     if err != nil {
-        fmt.Fprintf(os.Stderr, "iconForBundle: mdfind failed for %s: %v\n", bundle, err)
+        logf("iconForBundle: mdfind failed for %s: %v\n", bundle, err)
         iconCache[bundle] = nil
         return nil
     }
     lines := strings.Split(strings.TrimSpace(string(out)), "\n")
     if len(lines) == 0 || lines[0] == "" {
-        fmt.Fprintf(os.Stderr, "iconForBundle: no path found for %s\n", bundle)
+        logf("iconForBundle: no path found for %s\n", bundle)
         iconCache[bundle] = nil
         return nil
     }
     appPath := lines[0]
     icnsPath := findIcns(appPath)
     if icnsPath == "" {
-        fmt.Fprintf(os.Stderr, "iconForBundle: no icns under %s\n", appPath)
+        logf("iconForBundle: no icns under %s\n", appPath)
         iconCache[bundle] = nil
         return nil
     }
@@ -137,7 +288,7 @@ func iconForBundle(bundle string) []byte {
     // file and reading that back.
     tmp, err := os.CreateTemp("", "goports-icon-*.png")
     if err != nil {
-        fmt.Fprintf(os.Stderr, "iconForBundle: temp file create failed: %v\n", err)
+        logf("iconForBundle: temp file create failed: %v\n", err)
         iconCache[bundle] = nil
         return nil
     }
@@ -147,17 +298,17 @@ func iconForBundle(bundle string) []byte {
 
     cmd := exec.Command("sips", "-s", "format", "png", icnsPath, "--out", tmpPath)
     if err := cmd.Run(); err != nil {
-        fmt.Fprintf(os.Stderr, "iconForBundle: sips failed for %s: %v\n", icnsPath, err)
+        logf("iconForBundle: sips failed for %s: %v\n", icnsPath, err)
         iconCache[bundle] = nil
         return nil
     }
     png, err := os.ReadFile(tmpPath)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "iconForBundle: read temp icon failed: %v\n", err)
+        logf("iconForBundle: read temp icon failed: %v\n", err)
         iconCache[bundle] = nil
         return nil
     }
-    fmt.Fprintf(os.Stderr, "iconForBundle: loaded icon for %s (%d bytes)\n", bundle, len(png))
+    logf("iconForBundle: loaded icon for %s (%d bytes)\n", bundle, len(png))
     iconCache[bundle] = png
     return png
 }
@@ -246,6 +397,12 @@ var (
     webviewWidth  = 800
     webviewHeight = 600
     webviewDebug  = false
+    webviewTitle  = "goports Activity"
+    // optional initial position for the window (points from left, bottom).
+    // zero values are valid but negative values mean "leave whatever the
+    // system chooses".  defaults give a location roughly under the menu bar.
+    webviewX = 100
+    webviewY = 50
 )
 
 // SetWebviewSize allows the caller (typically main_darwin) to override the
@@ -263,6 +420,28 @@ func SetWebviewSize(w, h int) {
 // SetWebviewDebug enables or disables debug mode for the webview.New call.
 func SetWebviewDebug(d bool) {
     webviewDebug = d
+}
+
+// SetWebviewTitle allows the caller to override the embedded window title.
+// An empty string leaves the current title untouched.
+func SetWebviewTitle(t string) {
+    if t != "" {
+        webviewTitle = t
+    }
+}
+
+// SetWebviewPosition lets callers specify an initial origin for the webview
+// window.  The `x` value is an offset from the left edge of the screen.  The
+// `y` value is a distance from the top of the screen; this makes it easy to
+// open the window just below the menu bar.  Negative coordinates are ignored
+// (the runtime will choose a sensible default).
+func SetWebviewPosition(x, y int) {
+    if x >= 0 {
+        webviewX = x
+    }
+    if y >= 0 {
+        webviewY = y
+    }
 }
 
 // normalizeAddr converts a listener address (possibly "[::]:port" or
@@ -284,6 +463,11 @@ func normalizeAddr(addr string) string {
 }
 
 func onReady() {
+    // announce where diagnostic log lives (macOS uses Library/Application Support).
+    if p, err := config.Path(); err == nil {
+        logf("diagnostic log file: %s.log\n", p)
+    }
+
     // load configuration and apply any stored webview preferences
     if cfg := config.Load(); true {
         if cfg.WebviewWidth > 0 {
@@ -293,6 +477,9 @@ func onReady() {
             webviewHeight = cfg.WebviewHeight
         }
         webviewDebug = cfg.WebviewDebug
+        if cfg.WebviewTitle != "" {
+            webviewTitle = cfg.WebviewTitle
+        }
     }
     // configure tray icon and tooltip.  the icon may change based on dark
     // mode; setTrayIcon handles the decision and will be re-run periodically.
@@ -306,7 +493,7 @@ func onReady() {
         eventAddr = srv.Addr
         // compute a browser-friendly URL
         eventURL = normalizeAddr(eventAddr)
-        fmt.Fprintf(os.Stderr, "event server listening on %s (url %s)\n", eventAddr, eventURL)
+        logf("event server listening on %s (url %s)\n", eventAddr, eventURL)
     }
 
     // begin ingesting port activity events; the graphing implementation is
@@ -328,26 +515,18 @@ func onReady() {
     // handle graph menu clicks
     if graphItem != nil {
         go func() {
+            defer func() {
+                if r := recover(); r != nil {
+                    logf("graphItem handler panic: %v\n", r)
+                }
+            }()
             for range graphItem.ClickedCh {
-                url := eventURL
-                if url == "" {
-                    url = "http://localhost" // fallback
-                }
-                // try to open inside a webview; fall back to external browser if it
-                // fails. the settings above are populated from the persistent
-                // configuration (and may be overridden by a CLI hook).
-                w := webview.New(webviewDebug)
-                if w != nil {
-                    w.SetTitle("goports Activity")
-                    w.SetSize(webviewWidth, webviewHeight, webview.HintNone)
-                    w.Navigate(url)
-                    w.Run()
-                } else {
-                    // report to user that the embedded view could not be created
-                    beeep.Alert("goports", "Unable to create embedded webview; opening default browser instead.", "")
-                    fmt.Fprintf(os.Stderr, "webview.New returned nil, falling back to external browser\n")
-                    exec.Command("open", url).Run()
-                }
+                // webview requires running on a locked OS thread (often the main
+                // thread).  Lock here before invoking so w.Run won't crash the
+                // process when it attempts to pump the native event loop.
+                runtime.LockOSThread()
+                handleGraphClick(graphItem, eventURL)
+                runtime.UnlockOSThread()
             }
         }()
     }
@@ -363,6 +542,10 @@ func onReady() {
     refreshItem := settingsItem.AddSubMenuItem("Refresh interval", "Cycle between 5/10/15s")
     widthItem := settingsItem.AddSubMenuItem("Webview width...", "Pixels for embedded window width")
     heightItem := settingsItem.AddSubMenuItem("Webview height...", "Pixels for embedded window height")
+    xItem := settingsItem.AddSubMenuItem("Webview X pos...", "Horizontal position of window")
+    yItem := settingsItem.AddSubMenuItem("Webview Y pos...", "Vertical position of window")
+    titleItem := settingsItem.AddSubMenuItem("Webview title...", "Custom title for embedded window")
+    resetItem := settingsItem.AddSubMenuItem("Reset webview settings", "Restore defaults for embedded window")
 
     cfg := config.Load()
     if cfg.StartOnLogin {
@@ -394,6 +577,11 @@ func onReady() {
         filterItem.SetTitle(fmt.Sprintf("Filter: %s", cfg.SearchFilter))
     }
     refreshItem.SetTitle(fmt.Sprintf("Refresh interval (%ds)", cfg.RefreshInterval))
+    widthItem.SetTitle(fmt.Sprintf("Webview width (%d)", cfg.WebviewWidth))
+    heightItem.SetTitle(fmt.Sprintf("Webview height (%d)", cfg.WebviewHeight))
+    xItem.SetTitle(fmt.Sprintf("Webview X (%d)", cfg.WebviewX))
+    yItem.SetTitle(fmt.Sprintf("Webview Y (%d)", cfg.WebviewY))
+    titleItem.SetTitle(fmt.Sprintf("Webview title (%s)", cfg.WebviewTitle))
 
     // click handlers for static items
     go func() {
@@ -510,6 +698,52 @@ func onReady() {
                 heightItem.SetTitle(fmt.Sprintf("Webview height (%d)", newh))
                 _ = config.Save(cfg)
             }
+        }
+    }()
+    go func() {
+        for range xItem.ClickedCh {
+            newx := promptNumber("Webview X position", cfg.WebviewX)
+            if newx != cfg.WebviewX {
+                cfg.WebviewX = newx
+                xItem.SetTitle(fmt.Sprintf("Webview X (%d)", newx))
+                _ = config.Save(cfg)
+            }
+        }
+    }()
+    go func() {
+        for range yItem.ClickedCh {
+            newy := promptNumber("Webview Y position", cfg.WebviewY)
+            if newy != cfg.WebviewY {
+                cfg.WebviewY = newy
+                yItem.SetTitle(fmt.Sprintf("Webview Y (%d)", newy))
+                _ = config.Save(cfg)
+            }
+        }
+    }()
+    go func() {
+        for range titleItem.ClickedCh {
+            newt := promptFilter(cfg.WebviewTitle)
+            if newt != cfg.WebviewTitle {
+                cfg.WebviewTitle = newt
+                titleItem.SetTitle(fmt.Sprintf("Webview title (%s)", newt))
+                _ = config.Save(cfg)
+            }
+        }
+    }()
+    go func() {
+        for range resetItem.ClickedCh {
+            cfg.WebviewWidth = 800
+            cfg.WebviewHeight = 600
+            cfg.WebviewTitle = "goports Activity"
+            cfg.WebviewDebug = false
+            cfg.WebviewX = 0
+            cfg.WebviewY = 0
+            widthItem.SetTitle(fmt.Sprintf("Webview width (%d)", cfg.WebviewWidth))
+            heightItem.SetTitle(fmt.Sprintf("Webview height (%d)", cfg.WebviewHeight))
+            xItem.SetTitle(fmt.Sprintf("Webview X (%d)", cfg.WebviewX))
+            yItem.SetTitle(fmt.Sprintf("Webview Y (%d)", cfg.WebviewY))
+            titleItem.SetTitle(fmt.Sprintf("Webview title (%s)", cfg.WebviewTitle))
+            _ = config.Save(cfg)
         }
     }()
 

@@ -168,6 +168,7 @@ applied.)
 --webview-width N     # (GUI) force embedded webview width in pixels
 --webview-height N    # (GUI) force embedded webview height in pixels
 --webview-debug       # (GUI) enable webview debug mode for troubleshooting
+--webview-title TEXT  # (GUI) set embedded window title
 ```
 
 #### HTTP API
@@ -282,13 +283,52 @@ login items and interval controls you can now:
   information.
 * The menu bar icon automatically switches between light and dark variants
 
-* **Embedded webview dimensions** – if you prefer a different size for the
-  activity graph window, you can set `webview_width` and `webview_height`
-  in the config file (`~/.config/goports/settings.json`) or launch the GUI
-  with `--webview-width` / `--webview-height`.  A `--webview-debug` flag
-  enables the underlying `webview` library's debug mode (useful when the
-  window fails to appear).
-  depending on your macOS appearance.
+* **Embedded webview dimensions & title** – if you prefer a different size
+  for the activity graph window, you can set `webview_width` and
+  `webview_height` in the config file (`~/.config/goports/settings.json`) or
+  launch the GUI with `--webview-width` / `--webview-height`.  You can also
+  specify a custom window title using the `webview_title` field or the
+  `--webview-title` flag.  A `--webview-debug` flag enables the underlying
+  `webview` library's debug mode (useful when the window fails to appear).
+  The Settings menu now offers **Webview width…**, **height…**, and
+  **title…** items, plus **Reset webview settings** to restore defaults.
+
+When the embedded view is requested the app no longer tries to host it in
+its own process; instead it spawns a helper copy of itself (`--webview-child`)
+on the main thread so macOS’s WebKit requirements are satisfied.  The
+parent menu-bar process therefore cannot crash if webview initialization
+fails.  The helper is launched directly (not via `open`) which lets us capture
+its stdout/stderr for logging; this is also why you may see file descriptors
+in use after the call.  The child process explicitly locks its OS thread
+before creating and running the webview; failing to do so previously caused
+nothing to appear while the helper stayed alive with no errors logged.  If
+you still encounter a blank window check the diagnostic log – you should see
+messages like
+
+```
+webview child starting with URL=…
+webview.Run about to execute
+webview.Run returned, exiting child
+```
+
+The helper now also attempts to place the window at sensible coordinates –
+by default it sits about 100 points from the left edge and 50 points below
+the top of the main display (i.e. just under the menu bar).  After moving
+it the helper activates the app (`NSApplication.activateIgnoringOtherApps`)
+so the window will float above other applications such as VSCode.  You can
+customise the position via the `--webview-x`/`--webview-y` CLI flags or in
+the Preferences menu; `y` is interpreted as a distance from the *top* of the
+screen.  The settings are persisted along with the width/height/title.  If
+the helper still refuses to appear the log will contain panic information.
+If the child cannot be started a notification is shown, the menu item is
+disabled and relabelled "Activity Graph (unavailable)", and the page opens in
+your default browser.  Diagnostic messages are emitted to stderr and also
+appended to a log file alongside the configuration (e.g.
+`/Users/…/Library/Application Support/goports/settings.json.log`).  Inspect
+that file if you don’t run from a terminal – it will contain the child
+process output and error reasons.
+
+depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
   technologies such as VoiceOver.
 

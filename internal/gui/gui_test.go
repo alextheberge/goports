@@ -3,7 +3,10 @@ package gui
 import (
     "strings"
     "testing"
+    "os/exec"
+    "unsafe"
 
+    "github.com/webview/webview"
     "github.com/user/goports/internal/ports"
 )
 
@@ -82,11 +85,12 @@ func TestNormalizeAddr(t *testing.T) {
 // Exercise the setters to ensure they adjust package variables as expected.
 func TestWebviewSetters(t *testing.T) {
     // save originals
-    ow, oh, od := webviewWidth, webviewHeight, webviewDebug
+    ow, oh, od, ot := webviewWidth, webviewHeight, webviewDebug, webviewTitle
     defer func() {
         webviewWidth = ow
         webviewHeight = oh
         webviewDebug = od
+        webviewTitle = ot
     }()
 
     SetWebviewSize(0, 0) // should be no-op
@@ -101,4 +105,94 @@ func TestWebviewSetters(t *testing.T) {
     if !webviewDebug {
         t.Errorf("debug flag not set")
     }
+    SetWebviewTitle("foo")
+    if webviewTitle != "foo" {
+        t.Errorf("title not set, got %q", webviewTitle)
+    }
+}
+
+func TestWebviewPositionSetters(t *testing.T) {
+    ox, oy := webviewX, webviewY
+    defer func() { webviewX, webviewY = ox, oy }()
+
+    SetWebviewPosition(-1, -1) // should be ignored
+    if webviewX != ox || webviewY != oy {
+        t.Errorf("negative coords changed values: %d,%d", webviewX, webviewY)
+    }
+    SetWebviewPosition(10, 20)
+    if webviewX != 10 || webviewY != 20 {
+        t.Errorf("position not updated, got %d,%d", webviewX, webviewY)
+    }
+}
+
+// fakeMenu is a simple implementer of graphMenuItem for testing.
+type fakeMenu struct {
+    disabled bool
+    title    string
+}
+
+func (f *fakeMenu) Disable() { f.disabled = true }
+func (f *fakeMenu) SetTitle(s string) { f.title = s }
+
+func TestHandleGraphClickFailure(t *testing.T) {
+    // simulate exec.Command always returning a stub that fails to start/run
+    orig := execCommand
+    execCommand = func(name string, args ...string) *exec.Cmd {
+        // simply return a command with zero Path so Start/Run report an error.
+        return &exec.Cmd{}
+    }
+    defer func() { execCommand = orig }()
+
+    f := &fakeMenu{title: "initial"}
+    handleGraphClick(f, "http://example")
+    if !f.disabled {
+        t.Error("expected menu to be disabled after failing to spawn child")
+    }
+    if f.title != "Activity Graph (unavailable)" {
+        t.Errorf("unexpected title %q", f.title)
+    }
+}
+
+// stubType implements the full webview.WebView interface with no-op
+// methods.  Run() is the only one that does anything; we record whether it
+// was invoked so tests can assert that OpenWebview actually executed the
+// loop.
+type stubType struct{
+    ran bool
+}
+
+func (s *stubType) Run()                   { s.ran = true }
+func (s *stubType) Terminate()             {}
+func (s *stubType) Dispatch(f func())      {}
+func (s *stubType) Destroy()               {}
+func (s *stubType) Window() unsafe.Pointer { return nil }
+func (s *stubType) SetTitle(string)        {}
+func (s *stubType) SetSize(w, h int, hint webview.Hint) {}
+func (s *stubType) Navigate(url string)    {}
+func (s *stubType) SetHtml(html string)    {}
+func (s *stubType) Init(js string)         {}
+func (s *stubType) Eval(js string)         {}
+func (s *stubType) Bind(name string, f interface{}) error { return nil }
+
+
+func TestOpenWebview(t *testing.T) {
+    // case1: webviewNew returns nil → error
+    origNew := webviewNew
+    webviewNew = func(debug bool) webview.WebView { return nil }
+    if err := OpenWebview(""); err == nil {
+        t.Error("expected error when webviewNew returns nil")
+    }
+
+    // case2: successful creation and Run invocation
+    stub := &stubType{ran: false}
+    webviewNew = func(debug bool) webview.WebView { return stub }
+    if err := OpenWebview("http://foo"); err != nil {
+        t.Errorf("unexpected error: %v", err)
+    }
+    if !stub.ran {
+        t.Error("Run() was not called on the stubbed webview")
+    }
+
+    // restore original
+    webviewNew = origNew
 }
