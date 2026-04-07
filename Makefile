@@ -81,7 +81,10 @@ go-clean:
 # Install: curl -fsSL https://raw.githubusercontent.com/alextheberge/MVSengine/master/scripts/install.sh | bash
 MVS_MANAGER ?= mvs-manager
 
-.PHONY: test lint-mvs mvs-generate install-hooks
+.PHONY: vet test lint-mvs mvs-generate install-hooks ci
+
+vet:
+	go vet ./...
 
 test:
 	go test ./...
@@ -95,8 +98,8 @@ mvs-generate:
 		--go-export-following package-only \
 		--exclude-path legacy/python
 
-# Default CI gate: compile plus MVS lint. Run `make test` separately for full tests.
-ci: build lint-mvs
+# Mirrors .github/workflows/ci.yml (vet, test, build, MVS). Requires mvs-manager on PATH.
+ci: vet test build lint-mvs
 
 install-hooks:
 	git config core.hooksPath .githooks

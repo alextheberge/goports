@@ -123,7 +123,9 @@ make mvs-generate   # reconcile mvs.json with the tree
 make lint-mvs       # CI check: manifest matches code
 ```
 
-Use `make install-hooks` to point Git at `.githooks` so commits run `make lint-mvs`. GitHub Actions runs `mvs-manager lint` on pushes and pull requests.
+Use `make install-hooks` to point Git at `.githooks` so commits run `make lint-mvs`. GitHub Actions (`.github/workflows/ci.yml`) runs `go vet`, `go test`, `go build`, a Windows cross-compile, and `mvs-manager lint` on pushes and pull requests.
+
+Pushing a tag matching `v*` (for example `v0.3.0`) triggers `.github/workflows/release.yml`, which uploads Linux, Windows, and macOS binaries plus a `checksums.txt` file to the GitHub release.
 
 ### Usage
 

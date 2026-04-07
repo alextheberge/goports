@@ -61,7 +61,8 @@ and implementation effort. Items marked **(high return)** should be tackled firs
 - Add debug helpers (`GOPORTS_DEBUG`, `GOPORTS_FAKE_SYSCTL`) and document
   them.
 - Extract public library API and document it.
-- Homebrew formula and GitHub Actions release workflow.
+- GitHub Actions CI (vet, test, build on Ubuntu + macOS, Windows cross-build) and tagged **release** workflow (Linux amd64/arm64, Windows amd64, macOS amd64/arm64 binaries plus `checksums.txt`).
+- Homebrew formula.
 - Sign/notarize macOS bundle in CI.
 
 ## 4. Nice-to-have / long-term
