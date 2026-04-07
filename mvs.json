@@ -1,0 +1,104 @@
+{
+  "$schema": "https://mvs.dev/schema/v1",
+  "identity": {
+    "mvs": "0.2.3-cli",
+    "arch": 0,
+    "feat": 2,
+    "prot": 3,
+    "cont": "cli"
+  },
+  "compatibility": {
+    "host_range": {
+      "min_prot": 0,
+      "max_prot": 3
+    },
+    "extension_range": {
+      "min_prot": 0,
+      "max_prot": 3
+    },
+    "legacy_shims": []
+  },
+  "capabilities": {},
+  "ai_contract": {
+    "tool_schema_version": 1,
+    "tool_schema_hash": "",
+    "required_model_capabilities": [],
+    "provided_model_capabilities": [],
+    "prompt_contract_id": "default"
+  },
+  "environment": {
+    "profiles": [
+      "cli"
+    ],
+    "runtime_constraints": {}
+  },
+  "scan_policy": {
+    "exclude_paths": [
+      "legacy/python"
+    ],
+    "public_api_roots": [
+      "internal/cli/cli.go"
+    ],
+    "go_export_following": "package_only"
+  },
+  "evidence": {
+    "feature_hash": "8c8b05769dc48b74e76fbaae14b0cd8008208536402b1f30cd9d96df8a6ad80a",
+    "protocol_hash": "2f6ded1658bf1e3134b70f3aa08df5ee6eb73dbca76918a7e354313abc3950ea",
+    "public_api_hash": "0b28ebb9a83d9566682ee7431b0cf4a241782c6c41f78bb07c2f6805b189d7b7",
+    "feature_inventory": [
+      "activity_stream",
+      "http_event_server",
+      "port_monitoring",
+      "process_control"
+    ],
+    "protocol_inventory": [
+      "goports-cli-v1",
+      "goports-http-v1"
+    ],
+    "public_api_inventory": [
+      {
+        "file": "internal/cli/cli.go",
+        "signature": "go:func Run(args []string)"
+      }
+    ]
+  },
+  "history": [
+    {
+      "mvs": "0.1.1-cli",
+      "arch": 0,
+      "feat": 1,
+      "prot": 1,
+      "cont": "cli",
+      "reasons": [
+        "Feature incremented due to @mvs-feature set drift (example source: unknown source).",
+        "Protocol incremented due to @mvs-protocol surface drift (example source: unknown source).",
+        "Protocol incremented due to public API signature drift (example source: internal/cli/cli.go)."
+      ],
+      "changed_at_unix": 1775534985
+    },
+    {
+      "mvs": "0.1.2-cli",
+      "arch": 0,
+      "feat": 1,
+      "prot": 2,
+      "cont": "cli",
+      "reasons": [
+        "Protocol incremented due to public API signature drift (example source: internal/cli/cli.go)."
+      ],
+      "changed_at_unix": 1775534995
+    },
+    {
+      "mvs": "0.2.3-cli",
+      "arch": 0,
+      "feat": 2,
+      "prot": 3,
+      "cont": "cli",
+      "reasons": [
+        "Feature incremented due to @mvs-feature set drift (example source: internal/ports/activity.go).",
+        "Protocol incremented due to @mvs-protocol surface drift (example source: internal/cli/cli.go).",
+        "Protocol incremented due to public API signature drift (example source: internal/cli/cli.go)."
+      ],
+      "changed_at_unix": 1775535035
+    }
+  ]
+}

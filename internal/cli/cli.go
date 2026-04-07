@@ -1,4 +1,8 @@
 // Package cli provides the command-line interface for the application.
+//
+// @mvs-feature("port_monitoring")
+// @mvs-feature("process_control")
+// @mvs-protocol("goports-cli-v1")
 package cli
 
 import (

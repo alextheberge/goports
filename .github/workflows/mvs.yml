@@ -1,0 +1,32 @@
+name: MVS manifest
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  lint-mvs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mvs-manager
+        run: |
+          set -euo pipefail
+          ver="1.6.0"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) target="x86_64-unknown-linux-gnu" ;;
+            aarch64) target="aarch64-unknown-linux-gnu" ;;
+            *) echo "unsupported arch: $arch"; exit 1 ;;
+          esac
+          curl -fsSL -o /tmp/mvs.tgz \
+            "https://github.com/alextheberge/MVSengine/releases/download/v${ver}/mvs-manager-${ver}-${target}.tar.gz"
+          sudo tar -xzf /tmp/mvs.tgz -C /usr/local/bin mvs-manager
+          chmod +x /usr/local/bin/mvs-manager
+          mvs-manager --version
+
+      - name: Lint manifest vs source
+        run: mvs-manager lint --root . --manifest mvs.json --format text

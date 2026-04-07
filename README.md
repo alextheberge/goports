@@ -111,6 +111,20 @@ archive produced by `make dist`.
 > ⚠️ `make python-build` and `setup.py` are maintained only for historic
 > reference; they no longer produce a usable application.
 
+### Versioning (MVS)
+
+This repo tracks a [multidimensional version](https://github.com/alextheberge/MVSengine) in `mvs.json` (`[ARCH].[FEAT].[PROT]-[CONT]`). Source comments such as `@mvs-feature(...)` and `@mvs-protocol(...)` tag capability and integration surfaces; the public CLI entrypoint `cli.Run` is the Go API boundary for lint. After changing flags, HTTP contract, or those tags, refresh the manifest and commit it:
+
+```bash
+# install mvs-manager once (see upstream README for Windows)
+curl -fsSL https://raw.githubusercontent.com/alextheberge/MVSengine/master/scripts/install.sh | bash
+
+make mvs-generate   # reconcile mvs.json with the tree
+make lint-mvs       # CI check: manifest matches code
+```
+
+Use `make install-hooks` to point Git at `.githooks` so commits run `make lint-mvs`. GitHub Actions runs `mvs-manager lint` on pushes and pull requests.
+
 ### Usage
 
 `goports` enumerates listening sockets via a platform-specific engine.

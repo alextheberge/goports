@@ -13,9 +13,11 @@
 //
 // A test helper is provided below to programmatically start a server and
 // obtain the bound address.
+//
+// @mvs-feature("http_event_server")
+// @mvs-protocol("goports-http-v1")
 
 package ports
-
 
 import (
     "crypto/rand"

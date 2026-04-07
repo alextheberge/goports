@@ -77,4 +77,29 @@ run-app: build-app
 go-clean:
 	rm -rf bin/
 
+# Multidimensional versioning (MVS): https://github.com/alextheberge/MVSengine
+# Install: curl -fsSL https://raw.githubusercontent.com/alextheberge/MVSengine/master/scripts/install.sh | bash
+MVS_MANAGER ?= mvs-manager
+
+.PHONY: test lint-mvs mvs-generate install-hooks
+
+test:
+	go test ./...
+
+lint-mvs:
+	$(MVS_MANAGER) lint --root . --manifest mvs.json --format text
+
+mvs-generate:
+	$(MVS_MANAGER) generate --root . --manifest mvs.json --context cli \
+		--public-api-root internal/cli/cli.go \
+		--go-export-following package-only \
+		--exclude-path legacy/python
+
+# Default CI gate: compile plus MVS lint. Run `make test` separately for full tests.
+ci: build lint-mvs
+
+install-hooks:
+	git config core.hooksPath .githooks
+	chmod +x .githooks/pre-commit
+
 

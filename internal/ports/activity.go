@@ -4,6 +4,8 @@
 // The implementation is intentionally minimal: callers receive a channel of
 // PortActivity records and are responsible for buffering/aggregating as
 // appropriate for their UI.
+//
+// @mvs-feature("activity_stream")
 
 package ports
 
