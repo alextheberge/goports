@@ -82,3 +82,35 @@ func TestSpecFlag(t *testing.T) {
 func TestWebviewFlagsIgnored(t *testing.T) {
 	Run([]string{"--webview-width", "100", "--webview-height", "200", "--webview-debug", "--webview-title", "hi"})
 }
+
+func TestHelpFlag(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	Run([]string{"--help"})
+	w.Close()
+	var buf strings.Builder
+	io.Copy(&buf, r)
+	os.Stdout = old
+
+	out := buf.String()
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "--json") {
+		t.Fatalf("help output missing expected content: %q", out)
+	}
+}
+
+func TestVersionFlag(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	Run([]string{"--version"})
+	w.Close()
+	var buf strings.Builder
+	io.Copy(&buf, r)
+	os.Stdout = old
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.HasPrefix(out, "goports ") {
+		t.Fatalf("version line: %q", out)
+	}
+}

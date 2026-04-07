@@ -1,6 +1,6 @@
 module github.com/user/goports
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/gen2brain/beeep v0.11.2
@@ -9,7 +9,8 @@ require (
 	github.com/guptarohit/asciigraph v0.7.3
 	github.com/olekukonko/tablewriter v1.1.3
 	github.com/webview/webview v0.0.0-20230830165049-e0ca3ed53345
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.42.0
+	golang.org/x/term v0.41.0
 )
 
 require (

@@ -1,20 +1,20 @@
 {
   "$schema": "https://mvs.dev/schema/v1",
   "identity": {
-    "mvs": "0.2.3-cli",
+    "mvs": "0.2.4-cli",
     "arch": 0,
     "feat": 2,
-    "prot": 3,
+    "prot": 4,
     "cont": "cli"
   },
   "compatibility": {
     "host_range": {
       "min_prot": 0,
-      "max_prot": 3
+      "max_prot": 4
     },
     "extension_range": {
       "min_prot": 0,
-      "max_prot": 3
+      "max_prot": 4
     },
     "legacy_shims": []
   },
@@ -44,7 +44,7 @@
   "evidence": {
     "feature_hash": "8c8b05769dc48b74e76fbaae14b0cd8008208536402b1f30cd9d96df8a6ad80a",
     "protocol_hash": "2f6ded1658bf1e3134b70f3aa08df5ee6eb73dbca76918a7e354313abc3950ea",
-    "public_api_hash": "0b28ebb9a83d9566682ee7431b0cf4a241782c6c41f78bb07c2f6805b189d7b7",
+    "public_api_hash": "6b1ce5bd66436c0c4a581b085c63cc921796b50a0a1836fcebbe42e6798dcdb5",
     "feature_inventory": [
       "activity_stream",
       "http_event_server",
@@ -58,7 +58,7 @@
     "public_api_inventory": [
       {
         "file": "internal/cli/cli.go",
-        "signature": "go:func Run(args []string)"
+        "signature": "go:func Run(args []string) int"
       }
     ]
   },
@@ -99,6 +99,17 @@
         "Protocol incremented due to public API signature drift (example source: internal/cli/cli.go)."
       ],
       "changed_at_unix": 1775535035
+    },
+    {
+      "mvs": "0.2.4-cli",
+      "arch": 0,
+      "feat": 2,
+      "prot": 4,
+      "cont": "cli",
+      "reasons": [
+        "Protocol incremented due to public API signature drift (example source: internal/cli/cli.go)."
+      ],
+      "changed_at_unix": 1775536372
     }
   ]
 }

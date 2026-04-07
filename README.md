@@ -7,6 +7,7 @@
 1. [Features](#features)
 2. [Requirements](#requirements)
 3. [Getting Started](#getting-started)
+   * [Quick start](#quick-start)
    * [Download](#download)
    * [Building](#building)
    * [Usage](#usage)
@@ -22,6 +23,15 @@ runtime requirements.
 Whether you’re developing servers, debugging networking issues or simply
 curious, goports lets you inspect, open or kill port owners without leaving
 the keyboard.
+
+### Quick start
+
+1. **Install** – From this repo’s [GitHub Releases](https://github.com/user/goports/releases) (tags `v*`), grab the binary for your OS, or build: `make build` → `./bin/goports`.
+2. **Inspect** – `./bin/goports` lists listeners once; `./bin/goports --watch` refreshes every 5s.
+3. **Script** – `./bin/goports --json` or `--csv` for machine-readable output; `./bin/goports --help` for grouped flags and exit codes; `./bin/goports --version` for the build label. Use `-q` / `--quiet` for plain tables (and non-TTY-friendly `--watch` without cursor tricks).
+4. **Optional API** – `./bin/goports --http-port 8765` then open `http://127.0.0.1:8765/` for the activity UI (see [HTTP API](#http-api)).
+
+On macOS, `./bin/goports --gui` starts the menu-bar app (if built with GUI support).
 
 ---
 
@@ -66,11 +76,16 @@ command-line interface.  Highlights:
 - optional: Spotlight indexing enabled for icon resolution
 
 ## Getting Started
+
 _Note: the CLI engine is now abstracted so ports discovery can be implemented
 on non‑macOS platforms.  The application separates GUI code behind build
 tags; non‑darwin builds produce a CLI-only binary that will compile anywhere.
 Currently only macOS provides a working backend, but the scaffolding is in
 place for Linux/Windows support._
+
+### Quick start
+
+See the [Quick start](#quick-start) at the top of this file for the shortest path from binary to JSON/API.
 
 ### Download
 
@@ -162,29 +177,45 @@ Behaviors you get “for free”:
 
 #### CLI flags
 
-Several new options make scripting and interaction more flexible.  (Note
-that the `PROTO` and `FAMILY` columns are shown when no filters are
-applied.)
+Run `goports --help` for the full grouped list. Summary (note: `PROTO` and
+`FAMILY` columns appear when no filters are applied):
 
 ```sh
---gui                 # launch menu‑bar app (default)
---watch, -w           # refresh every N seconds
---kill PORT           # kill processes on PORT (any protocol)
---kill-name SUBSTR    # kill matching process names
---kill-bundle SUBSTR  # kill matching bundle identifiers
---signal NAME         # signal to send (TERM, KILL, etc.)
---proto tcp|udp       # filter displayed protocols
+-h, --help            # usage (exit 0)
+--version             # build version (set at link time for releases)
+
+# Exit codes: 0 ok, 1 error, 2 bad flags (Go flag package), 3 kill had failures
+--watch, -w           # refresh every 5 seconds
+-q, --quiet           # plain table columns; with --watch, plain refresh if stdout is not a TTY
+--json                # structured JSON
+--csv                 # CSV rows
+--tui                 # ASCII graph in the terminal
+--export              # dump activity history as JSON and exit
+--spec                # print OpenAPI JSON and exit
+
+--kill PORT           # kill listeners on PORT (any protocol)
+--kill-name SUBSTR    # kill processes whose command contains SUBSTR
+--kill-bundle SUBSTR  # kill processes whose bundle id contains SUBSTR
+--signal NAME         # TERM, KILL, etc. (default KILL)
+
+--proto tcp|udp       # filter by protocol
 --name SUBSTR         # filter by process name
---bundle SUBSTR       # filter by bundle identifier
+--bundle SUBSTR       # filter by bundle id substring
 --family IPv4|IPv6    # filter by address family
---json                # output JSON
---csv                 # output CSV
---spec                # print OpenAPI spec and exit
---open PORT           # open http://localhost:PORT in browser
---webview-width N     # (GUI) force embedded webview width in pixels
---webview-height N    # (GUI) force embedded webview height in pixels
---webview-debug       # (GUI) enable webview debug mode for troubleshooting
---webview-title TEXT  # (GUI) set embedded window title
+--native              # native discovery only (no lsof fallback)
+
+--http-port N         # serve HTTP API (see below) on port N
+--open PORT           # open http://localhost:PORT in the default browser
+
+# Parsed on all platforms for a consistent argv; effective on macOS GUI only:
+--gui                 # menu-bar app (handled in main before CLI)
+--webview-width N
+--webview-height N
+--webview-x N
+--webview-y N
+--webview-debug
+--webview-title TEXT
+--webview-child [URL] # internal webview helper process
 ```
 
 #### HTTP API
@@ -254,51 +285,59 @@ evt.onmessage = e => console.log("activity", JSON.parse(e.data));
 You can also view the API interactively by opening `/swagger` in your
 browser; it renders the spec with Swagger UI.
 
+##### Security and error responses
+
+Treat the HTTP server as **local-only** unless you know what you are doing.
+Bind to loopback (default `:port` is all interfaces — prefer `127.0.0.1:PORT`
+or `unix:/path` for a socket). Set **`GOPORTS_API_TOKEN`** when anything other
+than trusted clients can reach the port; pass the token as query `token=` or
+`Authorization: Bearer …`. For TLS, supply **`GOPORTS_TLS_CERT`** and
+**`GOPORTS_TLS_KEY`**, or use a reverse proxy.
+
+Clients that send **`Accept: application/json`** receive structured errors on
+failure, for example `{"error":{"code":"unauthorized","message":"unauthorized"}}`.
+Other clients get plain `text/plain` bodies from `net/http`.
+
+##### Diagnostics
+
+Set **`GOPORTS_LOG=debug`** for verbose **slog** output to stderr (and the same
+lines append to `settings.json.log` next to your config). See
+[`docs/RELEASING.md`](docs/RELEASING.md) for tagging releases and
+[`docs/MACOS_SIGNING.md`](docs/MACOS_SIGNING.md) for optional signing/notarization.
 
 #### GUI Settings
 
-When running in GUI mode a "Settings" submenu is available.  In addition to
-login items and interval controls you can now:
+When running in GUI mode a **Settings** submenu is available.  Highlights:
 
-#### GUI Settings
-
-When running in GUI mode a "Settings" submenu is available.  In addition to
-login items and interval controls you can now:
-
-* **Show TCP/Show UDP** checkboxes – toggle visibility of each protocol
-  from the Settings menu; useful when you only care about one type.
-* **Filter…** — show only menu items matching a case-insensitive substring;
-  the current filter is displayed in the menu and persisted across launches.
-* **Enable Notifications** checkbox appears in each port submenu, allowing
-  you to mute alerts for specific ports.  Settings are remembered between
-  sessions.
-* **Use native discovery only** checkbox – when checked the GUI will refrain
-  from invoking `lsof` or other helper binaries and rely purely on built-in
-  platform APIs (sysctl/netstat plus a `libproc` fd scan on macOS, `/proc` on
-  Linux, or IP Helper APIs on Windows).  The results are cached and the path
-  is lightweight and free of external dependencies.
+* **Show TCP / Show UDP** – toggle visibility of each protocol from Settings.
+* **Filter…** – show only menu items matching a case-insensitive substring;
+  the current filter is shown in the menu and persisted across launches.
+* **Per-port notifications** – each port submenu can mute or enable alerts;
+  choices persist between sessions.
+* **Use native discovery only** – when checked the GUI avoids invoking `lsof`
+  and similar helpers and uses built-in platform APIs (sysctl/`libproc` on
+  macOS, `/proc` on Linux, IP Helper on Windows).  Results are cached.
 
   **Why enable this mode?**
 
-  * You need a single, self-contained binary with **no external command
-    dependencies** – useful in containers, sandboxes, signed/hardened builds,
-    or on systems that might not even have `lsof` installed.
-  * Performance/battery.  Repeatedly shelling out to `lsof` can be expensive;
-    the native path is faster and less CPU-intensive during frequent polling.
-  * Cross-platform testing.  Linux and Windows discovery currently only
-    exist in native mode, so the flag lets you exercise those backends.
+  * Self-contained binary with **no external command dependencies** –
+    containers, sandboxes, or hosts without `lsof`.
+  * Less CPU/battery than repeated `lsof` during polling.
+  * On Linux/Windows, native discovery is the primary path; the flag matches
+    the CLI’s `--native`.
 
-  **What are the downsides?**
+  **Downsides**
 
-  The kernel may refuse to expose process metadata.  On macOS this happens
-  under SIP, sandboxing, or when running as an unprivileged user; on Linux
-  permissions can block `/proc/<pid>/fd` inspection.  In these cases the
-  native backend will return listeners with `Pid == 0` and blank command
-  lines/bundle IDs.  There is no workaround without invoking `lsof`, which is
-  why the checkbox is available – leave it off if you want rich PID/cmdline
-  information.
-* The menu bar icon automatically switches between light and dark variants
+  The OS may hide process metadata (macOS SIP/sandbox, Linux `/proc`
+  permissions).  You may see `Pid == 0` and empty command lines; turn native
+  mode off to allow `lsof` fallback when you need rich PID/cmdline data.
 
+* The menu bar icon switches between light and dark variants depending on
+  system appearance.
+
+* **Reset all preferences…** – restores defaults (notifications, TCP/UDP,
+  native mode, filter text, refresh interval, webview fields, blocked
+  notification map). Confirms via a dialog before writing `settings.json`.
 * **Embedded webview dimensions & title** – if you prefer a different size
   for the activity graph window, you can set `webview_width` and
   `webview_height` in the config file (`~/.config/goports/settings.json`) or
@@ -349,7 +388,6 @@ appended to a log file alongside the configuration (e.g.
 that file if you don’t run from a terminal – it will contain the child
 process output and error reasons.
 
-depending on your macOS appearance.
 * Descriptive tooltips on menu items improve accessibility for assistive
   technologies such as VoiceOver.
 

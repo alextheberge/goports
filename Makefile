@@ -23,9 +23,11 @@ clean:
 
 
 # Go-specific helpers
+# Override for release-like local builds: make build VERSION=1.2.3
+VERSION ?= dev
 
 go-build:
-	go build -o bin/goports ./
+	go build -trimpath -ldflags="-s -w -X github.com/user/goports/internal/version.Version=$(VERSION)" -o bin/goports ./
 
 # macOS bundle creation using the Go binary.  The resulting `goports.app`
 # mirrors the old py2app output but drops the Python dependency entirely.

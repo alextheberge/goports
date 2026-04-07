@@ -2,43 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>goports Activity</title>
-  <!-- Tailwind CSS from CDN for quick styling -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    /* ensure log area scrolls nicely */
-    #log { white-space: pre-wrap; height: 20vh; overflow: auto; }
+    #log { white-space: pre-wrap; height: min(20vh, 12rem); overflow: auto; }
+    button:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900 p-4">
-<h1 class="text-2xl font-bold mb-4">goports Activity Stream</h1>
-<div class="mb-2 flex space-x-2">
-  <button id="reset" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Reset history</button>
-  <button id="save" class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">Save data</button>
-  <input id="filter" class="ml-auto px-2 py-1 border rounded" placeholder="Search ports…" />
-</div>
-<div id="status" class="mb-2 italic">connecting…</div>
-<div id="log" class="mb-2 p-2 bg-white border rounded text-sm text-gray-700"></div>
-<!-- detail modal for per-port graph -->
-<div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
-  <div class="bg-white p-4 rounded shadow-lg w-3/4 max-w-lg">
-    <h2 id="modalTitle" class="text-xl font-semibold mb-2"></h2>
-    <canvas id="detailChart" width="400" height="200"></canvas>
-    <div class="mt-2 text-right">
-      <button id="closeModal" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Close</button>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+<main class="max-w-6xl mx-auto p-3 sm:p-4 w-full">
+  <h1 class="text-xl sm:text-2xl font-bold mb-3 text-gray-950">goports activity</h1>
+  <p class="text-sm text-gray-600 mb-3">Live listener count and port table update when the server reports changes. If the chart stays flat, open or close a service to generate events.</p>
+  <div class="mb-2 flex flex-wrap gap-2 items-center">
+    <button type="button" id="reset" aria-label="Clear stored event history" class="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">Reset history</button>
+    <button type="button" id="save" aria-label="Download history as JSON" class="px-3 py-1.5 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm">Save data</button>
+    <label class="ml-auto flex items-center gap-2 text-sm text-gray-700">
+      <span class="sr-only">Search ports</span>
+      <input id="filter" class="px-2 py-1.5 border border-gray-300 rounded-md w-40 sm:w-56 max-w-full" placeholder="Search ports…" autocomplete="off" />
+    </label>
+  </div>
+  <div id="status" class="mb-2 text-sm font-medium text-gray-800" role="status" aria-live="polite">Loading…</div>
+  <div id="log" class="mb-3 p-2 bg-white border border-gray-200 rounded-md text-sm text-gray-800" aria-label="Raw event log"></div>
+
+  <div id="modal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="bg-white p-4 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-auto">
+      <h2 id="modalTitle" class="text-lg font-semibold mb-2 text-gray-950"></h2>
+      <canvas id="detailChart" width="400" height="200" class="max-w-full h-auto" aria-label="Port history chart"></canvas>
+      <div class="mt-3 text-right">
+        <button type="button" id="closeModal" class="px-3 py-1.5 bg-gray-800 text-white rounded-md hover:bg-gray-900 text-sm">Close</button>
+      </div>
     </div>
   </div>
-</div>
-<!-- ports snapshot table -->
-<div class="overflow-auto mb-2">
-  <table id="ports" class="min-w-full table-auto bg-white">
-    <thead><tr class="bg-gray-200"><th class="px-2 py-1">Proto</th><th class="px-2 py-1">Port</th><th class="px-2 py-1">Host</th><th class="px-2 py-1">PID</th><th class="px-2 py-1">Name</th><th class="px-2 py-1">Cmdline</th><th class="px-2 py-1">Bundle</th></tr></thead>
-    <tbody></tbody>
-  </table>
-</div>
-<canvas id="chart" width="600" height="200" class="w-full max-w-2xl"></canvas>
+
+  <div class="overflow-x-auto mb-3 rounded-md border border-gray-200 bg-white">
+    <table id="ports" class="min-w-full table-auto text-sm">
+      <thead>
+        <tr class="bg-gray-100 text-left text-gray-900">
+          <th scope="col" class="px-2 py-2 font-semibold">Proto</th>
+          <th scope="col" class="px-2 py-2 font-semibold">Port</th>
+          <th scope="col" class="px-2 py-2 font-semibold">Host</th>
+          <th scope="col" class="px-2 py-2 font-semibold">PID</th>
+          <th scope="col" class="px-2 py-2 font-semibold">Name</th>
+          <th scope="col" class="px-2 py-2 font-semibold">Cmdline</th>
+          <th scope="col" class="px-2 py-2 font-semibold">Bundle</th>
+        </tr>
+      </thead>
+      <tbody id="portsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="rounded-md border border-gray-200 bg-white p-2 w-full max-w-3xl">
+    <p class="text-xs text-gray-600 mb-1">Open ports over time</p>
+    <canvas id="chart" width="600" height="200" class="w-full h-48 sm:h-52" aria-label="Chart of open port count"></canvas>
+  </div>
+</main>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<!-- date adapter needed for time scale -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
   const ctx = document.getElementById('chart').getContext('2d');
@@ -46,25 +65,24 @@
   const data = {
     labels: labels,
     datasets: [{
-      label: 'open ports',
+      label: 'Open ports',
       data: [],
-      borderColor: 'rgb(75, 192, 192)',
+      borderColor: 'rgb(13, 148, 136)',
       fill: false,
     }]
   };
   const config = {
     type: 'line',
     data: data,
-    options: { responsive: true, scales: { x: { type: 'time', time: { unit: 'second' } } } }
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'second' } } } }
   };
   const myChart = new Chart(ctx, config);
 
-  // maintain current count so we can avoid recalculating each time
   let currentCount = 0;
   function addPoint(evt) {
     const ts = new Date(evt.Timestamp);
-    // adjust count
     currentCount += evt.Open ? 1 : -1;
+    if (currentCount < 0) currentCount = 0;
     labels.push(ts);
     data.datasets[0].data.push(currentCount);
     if (labels.length > 100) {
@@ -75,95 +93,115 @@
 
   const status = document.getElementById('status');
 
-  // helper to refresh port snapshot table
-  function loadPorts() {
-    fetch('/ports').then(r=>r.json()).then(list=>{
-      const tb = document.querySelector('#ports tbody');
-      tb.innerHTML = '';
-      list.forEach(p=>{
-        const tr = document.createElement('tr');
-        tr.className = 'border-b cursor-pointer hover:bg-gray-100';
-        ['Protocol','Port','Host','Pid','Name','Cmdline','AppBundle'].forEach(k=>{
-          const td = document.createElement('td');
-          td.className = 'px-2 py-1';
-          td.textContent = p[k] || '';
-          tr.appendChild(td);
-        });
-        tr.addEventListener('click', ()=>{
-          showPortDetails(p);
-        });
-        tb.appendChild(tr);
-      });
-      filterTable();
-    }).catch(()=>{});
+  function rowForPort(p) {
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-gray-100 cursor-pointer hover:bg-gray-50';
+    ['Protocol','Port','Host','Pid','Name','Cmdline','AppBundle'].forEach(k=>{
+      const td = document.createElement('td');
+      td.className = 'px-2 py-1.5 text-gray-800';
+      td.textContent = p[k] != null && p[k] !== '' ? String(p[k]) : '—';
+      tr.appendChild(td);
+    });
+    tr.addEventListener('click', ()=> showPortDetails(p));
+    return tr;
   }
 
-  // search/filter helper
+  function loadPorts() {
+    status.textContent = 'Loading listeners…';
+    fetch('/ports')
+      .then(r => { if (!r.ok) throw new Error('ports'); return r.json(); })
+      .then(list => {
+        const tb = document.getElementById('portsBody');
+        tb.innerHTML = '';
+        if (!list || list.length === 0) {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 7;
+          td.className = 'px-3 py-6 text-center text-gray-600';
+          td.textContent = 'No listening ports reported yet. If you expected rows, check server logs or discovery permissions.';
+          tr.appendChild(td);
+          tb.appendChild(tr);
+        } else {
+          list.forEach(p => tb.appendChild(rowForPort(p)));
+        }
+        filterTable();
+        if (status.textContent === 'Loading listeners…') {
+          status.textContent = 'Ready — table updated';
+        }
+      })
+      .catch(() => {
+        status.textContent = 'Could not load /ports — check server or authentication';
+      });
+  }
+
   function filterTable() {
     const q = document.getElementById('filter').value.toLowerCase();
-    document.querySelectorAll('#ports tbody tr').forEach(tr=>{
+    document.querySelectorAll('#portsBody tr').forEach(tr => {
+      if (tr.querySelector('td[colspan]')) { tr.style.display = ''; return; }
       const text = tr.textContent.toLowerCase();
       tr.style.display = text.includes(q) ? '' : 'none';
     });
   }
   document.getElementById('filter').addEventListener('input', filterTable);
 
-  // show details for a single port
   function showPortDetails(p) {
-    // fetch recent history for this port and show modal graph
-    fetch(`/history?protocol=${p.protocol}&port=${p.port}&limit=500`).then(r=>r.json()).then(arr=>{
-      // build data for chart
-      const labels = [];
-      const dataPoints = [];
-      let count = 0;
-      arr.forEach(e=>{
-        const ts = new Date(e.Timestamp);
-        count += e.Open ? 1 : -1;
-        labels.push(ts);
-        dataPoints.push(count);
-      });
-      const ctx = document.getElementById('detailChart').getContext('2d');
-      // destroy existing chart if any
-      if (window.detailChartObj) {
-        window.detailChartObj.destroy();
-      }
-      window.detailChartObj = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{label: `${p.protocol}/${p.port}`, data: dataPoints, borderColor:'rgb(75,192,192)', fill:false}]
-        },
-        options: {scales:{x:{type:'time',time:{unit:'second'}}}}
-      });
-      document.getElementById('modalTitle').textContent = `${p.protocol}/${p.port} history`;
-      document.getElementById('modal').classList.remove('hidden');
-    }).catch(()=>{});
+    const proto = p.Protocol || p.protocol;
+    const port = p.Port != null ? p.Port : p.port;
+    fetch(`/history?protocol=${encodeURIComponent(proto)}&port=${encodeURIComponent(port)}&limit=500`)
+      .then(r => r.json())
+      .then(arr => {
+        const chartLabels = [];
+        const dataPoints = [];
+        let count = 0;
+        (arr || []).forEach(e => {
+          const ts = new Date(e.Timestamp);
+          count += e.Open ? 1 : -1;
+          chartLabels.push(ts);
+          dataPoints.push(count);
+        });
+        const dctx = document.getElementById('detailChart').getContext('2d');
+        if (window.detailChartObj) window.detailChartObj.destroy();
+        window.detailChartObj = new Chart(dctx, {
+          type: 'line',
+          data: {
+            labels: chartLabels,
+            datasets: [{ label: `${proto}/${port}`, data: dataPoints, borderColor:'rgb(13,148,136)', fill:false }]
+          },
+          options: { scales:{ x:{ type:'time', time:{ unit:'second' } } } }
+        });
+        document.getElementById('modalTitle').textContent = `${proto}/${port} history`;
+        document.getElementById('modal').classList.remove('hidden');
+        document.getElementById('closeModal').focus();
+      })
+      .catch(() => {});
   }
 
-  // initialize baseline from /status
   fetch('/status').then(r=>r.json()).then(obj=>{
     if (obj && typeof obj.open === 'number') {
       currentCount = obj.open;
       labels.push(new Date());
       data.datasets[0].data.push(currentCount);
       myChart.update();
+      status.textContent = 'Baseline loaded — connecting to event stream…';
     }
-  }).catch(()=>{});
+  }).catch(()=> { status.textContent = 'Could not reach /status'; });
 
-  // load snapshot and history next
   loadPorts();
   fetch('/history?limit=0').then(r=>r.json()).then(arr=>{
     let cnt = 0;
-    arr.forEach(e=>{
-      addPoint(e);
-      cnt++;
-    });
-    console.log('loaded', cnt, 'historical events');
+    (arr || []).forEach(e => { addPoint(e); cnt++; });
+    if (cnt === 0) {
+      status.textContent = 'No prior events in buffer — waiting for live activity…';
+    }
   }).catch(()=>{});
 
   const evtSource = new EventSource('/events');
-  evtSource.onopen = function() { status.textContent = 'connected'; };
-  evtSource.onerror = function() { status.textContent = 'error'; };
+  evtSource.onopen = function() {
+    status.textContent = 'Connected — live updates';
+  };
+  evtSource.onerror = function() {
+    status.textContent = 'Event stream error — reconnecting…';
+  };
   evtSource.onmessage = function(e) {
     const obj = JSON.parse(e.data);
     addPoint(obj);
@@ -178,7 +216,7 @@
         labels.length = 0;
         data.datasets[0].data.length = 0;
         myChart.update();
-        status.textContent = 'history cleared';
+        status.textContent = 'History cleared';
         loadPorts();
       }
     });

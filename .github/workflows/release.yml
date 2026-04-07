@@ -31,9 +31,9 @@ jobs:
             goos="${pair%%:*}"
             goarch="${pair#*:}"
             out="dist/goports-${v}-${goos}-${goarch}"
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="-s -w" -o "$out" .
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="-s -w -X github.com/user/goports/internal/version.Version=${v}" -o "$out" .
           done
-          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o "dist/goports-${v}-windows-amd64.exe" .
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/user/goports/internal/version.Version=${v}" -o "dist/goports-${v}-windows-amd64.exe" .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -58,7 +58,7 @@ jobs:
           v="${VERSION#v}"
           mkdir -p dist
           for goarch in amd64 arm64; do
-            GOARCH="$goarch" CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o "dist/goports-${v}-darwin-${goarch}" .
+            GOARCH="$goarch" CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X github.com/user/goports/internal/version.Version=${v}" -o "dist/goports-${v}-darwin-${goarch}" .
           done
 
       - uses: actions/upload-artifact@v4

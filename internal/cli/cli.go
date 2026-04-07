@@ -18,17 +18,26 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/gosuri/uilive"
 	"github.com/guptarohit/asciigraph"
 	"github.com/olekukonko/tablewriter"
+	"golang.org/x/term"
 
+	"github.com/user/goports/internal/applog"
+	"github.com/user/goports/internal/exitcode"
 	"github.com/user/goports/internal/ports"
+	"github.com/user/goports/internal/version"
 )
 
-// Run executes the CLI using the provided unparsed arguments.
-func Run(args []string) {
+// Run executes the CLI using the provided unparsed arguments. Exit codes: 0 ok,
+// 1 error, 3 kill failures; flag parse errors use 2 (from the flag package).
+func Run(args []string) int {
+	var showHelp bool
+	var showVersion bool
+
 	// define flags
 	var watch bool
 	var killPort int
@@ -45,8 +54,30 @@ func Run(args []string) {
 	var filterBundle string
 	var filterFamily string
 	var nativeOnly bool
+	var quiet bool
 
 	fs := flag.NewFlagSet("goports", flag.ExitOnError)
+	fs.SetOutput(os.Stdout)
+	fs.Usage = func() {
+		out := fs.Output()
+		fmt.Fprintf(out, "Usage: goports [flags]\n\n")
+		fmt.Fprintf(out, "List listening TCP/UDP ports and owning processes. On macOS, --gui starts the menu-bar app (handled by the binary, not shown below).\n\n")
+		fmt.Fprintf(out, "Output & display\n")
+		fmt.Fprintf(out, "  Default is a table. Use --json, --csv, or --tui for other views. --watch refreshes every 5s.\n\n")
+		fmt.Fprintf(out, "Actions\n")
+		fmt.Fprintf(out, "  --kill, --kill-name, --kill-bundle with --signal; --open; --export; --spec; --http-port for the local API.\n\n")
+		fmt.Fprintf(out, "Filters\n")
+		fmt.Fprintf(out, "  --proto, --name, --bundle, --family; --native for discovery mode.\n\n")
+		fmt.Fprintf(out, "GUI-only flags (ignored here; used when the darwin binary runs the menu bar or webview helper)\n")
+		fmt.Fprintf(out, "  --gui, --webview-*, --webview-child\n\n")
+		fmt.Fprintf(out, "Exit codes: 0 success, 1 error, 2 invalid flags (from Go's flag package), 3 kill action had failures.\n\n")
+		fmt.Fprintf(out, "Flags:\n")
+		fs.PrintDefaults()
+	}
+	fs.BoolVar(&showHelp, "h", false, "show usage and exit")
+	fs.BoolVar(&showHelp, "help", false, "show usage and exit")
+	fs.BoolVar(&showVersion, "version", false, "print version and exit")
+
 	fs.BoolVar(&watch, "watch", false, "refresh every 5s live")
 	fs.BoolVar(&watch, "w", false, "shorthand for --watch")
 	fs.IntVar(&killPort, "kill", 0, "port whose PIDs to kill (0=unset)")
@@ -63,6 +94,8 @@ func Run(args []string) {
 	fs.BoolVar(&exportHist, "export", false, "dump historical events as JSON and exit")
 	fs.BoolVar(&tui, "tui", false, "show a simple ASCII graph of open ports in the terminal")
 	fs.BoolVar(&nativeOnly, "native", false, "do not invoke lsof; use native discovery only")
+	fs.BoolVar(&quiet, "q", false, "quiet table output (no heavy borders); for --watch, skip live cursor mode when stdout is not a TTY")
+	fs.BoolVar(&quiet, "quiet", false, "same as -q")
 	var httpPort int
 	fs.IntVar(&httpPort, "http-port", 0, "if nonzero, start an HTTP server exposing /events on this port")
 	var specFlag bool
@@ -86,6 +119,17 @@ func Run(args []string) {
 
 	_ = fs.Parse(args)
 
+	if showHelp {
+		fs.Usage()
+		return exitcode.OK
+	}
+	if showVersion {
+		fmt.Printf("goports %s\n", version.Version)
+		return exitcode.OK
+	}
+
+	plainWatch := quiet || (watch && !jsonOut && !csvOut && !tui && !term.IsTerminal(int(os.Stdout.Fd())))
+
 	// apply the native-only flag to the discovery package
 	if nativeOnly {
 		ports.SetNativeOnly(true)
@@ -94,7 +138,7 @@ func Run(args []string) {
 	// print spec and exit before starting server or doing other work
 	if specFlag {
 		fmt.Println(ports.OpenAPISpec())
-		return
+		return exitcode.OK
 	}
 
 	// optionally start the event HTTP server
@@ -102,8 +146,8 @@ func Run(args []string) {
 		addr := fmt.Sprintf(":%d", httpPort)
 		_, cleanup, err := ports.StartEventServer(addr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to start event server on %s: %v\n", addr, err)
-			os.Exit(1)
+			applog.Logger().Error("event server failed", "addr", addr, "err", err)
+			return exitcode.Error
 		}
 		if cleanup != nil {
 			defer cleanup()
@@ -116,20 +160,23 @@ func Run(args []string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(hist)
-		return
+		return exitcode.OK
 	}
 
 	// kill actions take precedence.  we support port, name, and bundle
 	// matching.  a signal name can be supplied via --signal.
 	if killPort > 0 || killName != "" || killBundle != "" {
 		data := ports.AppsByPort()
-		// parse signal
 		sig := syscall.SIGKILL
 		if sigName != "" {
-			if s, ok := signalMap[strings.ToUpper(sigName)]; ok {
-				sig = s
+			s, ok := signalMap[strings.ToUpper(sigName)]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "unknown signal %q (use HUP, INT, TERM, KILL)\n", sigName)
+				return exitcode.Error
 			}
+			sig = s
 		}
+		var killOK, killFail int
 		for key, entries := range data {
 			for _, entry := range entries {
 				if killPort > 0 && key.Port != killPort {
@@ -141,29 +188,47 @@ func Run(args []string) {
 				if killBundle != "" && !strings.Contains(entry.AppBundle, killBundle) {
 					continue
 				}
+				if entry.Pid == 0 {
+					applog.Logger().Error("cannot kill: PID unknown (try without --native)", "key", key.String())
+					killFail++
+					continue
+				}
 				if err := killPID(int(entry.Pid), sig); err == nil {
-					fmt.Printf("Killed PID %d on %s (%s)\n", entry.Pid, key, sig)
+					if !quiet {
+						fmt.Printf("Killed PID %d on %s (%s)\n", entry.Pid, key, sig)
+					}
+					killOK++
 				} else {
-					fmt.Fprintf(os.Stderr, "failed to kill PID %d on %s: %v\n", entry.Pid, key, err)
+					applog.Logger().Error("kill failed", "pid", entry.Pid, "key", key.String(), "err", err)
+					killFail++
 				}
 			}
 		}
-		return
+		if killOK == 0 && killFail == 0 {
+			fmt.Fprintln(os.Stderr, "no matching processes to kill")
+			return exitcode.Error
+		}
+		if killFail > 0 {
+			return exitcode.KillFailed
+		}
+		return exitcode.OK
 	}
 
 	if openPort > 0 {
 		url := fmt.Sprintf("http://localhost:%d", openPort)
-		fmt.Printf("Opening %s\n", url)
-		if err := exec.Command("open", url).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", url, err)
-			os.Exit(1)
+		if !quiet {
+			fmt.Printf("Opening %s\n", url)
 		}
-		return
+		if err := exec.Command("open", url).Run(); err != nil {
+			applog.Logger().Error("open URL failed", "url", url, "err", err)
+			return exitcode.Error
+		}
+		return exitcode.OK
 	}
 
 	if tui {
 		runTUI()
-		return
+		return exitcode.OK
 	}
 
 	render := func(w io.Writer, data map[ports.PortKey][]ports.PortEntry) {
@@ -173,29 +238,48 @@ func Run(args []string) {
 		case csvOut:
 			renderCSV(w, data)
 		default:
-			renderTable(w, data)
+			renderTable(w, data, quiet)
 		}
 	}
 
 	if watch {
-		writer := uilive.New()
-		writer.Start()
-
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
+		if plainWatch {
+			loop := func() {
+				data := ports.AppsByPort()
+				data = applyFilters(data, filterProto, filterName, filterBundle, filterFamily)
+				if !quiet {
+					fmt.Print("\033[H\033[2J")
+				}
+				render(os.Stdout, data)
+			}
+			loop()
+			for {
+				select {
+				case <-ctx.Done():
+					return exitcode.OK
+				case <-time.After(5 * time.Second):
+					loop()
+				}
+			}
+		}
+
+		writer := uilive.New()
+		writer.Start()
 		loop := func() {
 			data := ports.AppsByPort()
+			data = applyFilters(data, filterProto, filterName, filterBundle, filterFamily)
 			render(writer, data)
 			writer.Flush()
 		}
-
 		loop()
 		for {
 			select {
 			case <-ctx.Done():
 				writer.Stop()
-				os.Exit(0)
+				return exitcode.OK
 			case <-time.After(5 * time.Second):
 				loop()
 			}
@@ -206,6 +290,7 @@ func Run(args []string) {
 	data := ports.AppsByPort()
 	data = applyFilters(data, filterProto, filterName, filterBundle, filterFamily)
 	render(os.Stdout, data)
+	return exitcode.OK
 }
 
 func runTUI() {
@@ -222,7 +307,7 @@ func runTUI() {
 	}
 }
 
-func renderTable(w io.Writer, data map[ports.PortKey][]ports.PortEntry) {
+func renderTable(w io.Writer, data map[ports.PortKey][]ports.PortEntry, quiet bool) {
 	// collect and sort keys (protocol first, then port)
 	keys := make([]ports.PortKey, 0, len(data))
 	for k := range data {
@@ -234,6 +319,36 @@ func renderTable(w io.Writer, data map[ports.PortKey][]ports.PortEntry) {
 		}
 		return keys[i].Protocol < keys[j].Protocol
 	})
+
+	if quiet {
+		tw := tabwriter.NewWriter(w, 0, 8, 2, ' ', 0)
+		fmt.Fprintln(tw, "PROTO\tPORT\tHOST\tBUNDLE\tFAMILY\tPID(s)\tCMD")
+		for _, key := range keys {
+			entries := data[key]
+			if len(entries) == 0 {
+				continue
+			}
+			var bundle string
+			if entries[0].AppBundle != "" {
+				bundle = entries[0].AppBundle
+			} else {
+				bundle = entries[0].Name
+			}
+			var pids []string
+			for _, e := range entries {
+				pids = append(pids, fmt.Sprintf("%d", e.Pid))
+			}
+			cmd := entries[0].Cmdline
+			if len(cmd) > 60 {
+				cmd = cmd[:60] + "…"
+			}
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+				key.Protocol, key.Port, entries[0].Host, bundle, entries[0].Family,
+				strings.Join(pids, ","), cmd)
+		}
+		_ = tw.Flush()
+		return
+	}
 
 	table := tablewriter.NewWriter(w)
 	table.Header("PROTO", "PORT", "HOST", "APP BUNDLE", "FAMILY", "PID(s)", "COMMAND SNIPPET", "FULL CMD")

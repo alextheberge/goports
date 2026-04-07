@@ -132,5 +132,37 @@ and implementation effort. Items marked **(high return)** should be tackled firs
   native `sysctl`/`/proc`/Win32 implementations and caching on all platforms.
 
 
+## 5. Polish & presentation (prioritized backlog)
+
+Actionable sequence; do higher items first for visible quality.
+
+1. ✅ **README quick start + CLI flag accuracy** – Short path at top of README
+   (install → list → JSON → optional HTTP); dedupe **GUI Settings**; align
+   documented flags with `cli.Run` (including `--version`, `--help`, GUI
+   passthrough flags).
+2. ✅ **CLI help polish** – `goports -h` / `--help` prints grouped usage to
+   stdout; optional preamble before `PrintDefaults`.
+3. ✅ **`--version` + link-time label** – `internal/version.Version` injected
+   via `-ldflags` in `Makefile` and release workflow; matches GitHub release
+   tags.
+4. ✅ **Release notes habit** – [`docs/RELEASING.md`](docs/RELEASING.md) and
+   [`docs/RELEASE_NOTES.template.md`](docs/RELEASE_NOTES.template.md).
+5. ✅ **Exit codes** – `internal/exitcode`; documented in README and `--help`;
+   `main` uses `os.Exit(cli.Run(…))`.
+6. ✅ **Quiet / machine mode** – `-q` / `--quiet`; non-TTY stdout uses plain
+   `--watch` without uilive.
+7. ✅ **GUI copy when metadata is missing** – `[no PID]` in titles; submenu
+   tooltip on macOS when all PIDs are zero.
+8. ✅ **Settings consistency** – **Reset all preferences…**; **Filter…**;
+   native checkbox tooltip references CLI `--native`.
+9. ✅ **Web UI (`ui.html`)** – Status/empty states, `aria-live`, focus rings,
+   responsive layout, fixed port row field names for history modal.
+10. ✅ **HTTP API docs** – README security + JSON `error` object when
+    `Accept: application/json`.
+11. ✅ **Unified logging** – `internal/applog` (**slog**), stderr +
+    `settings.json.log`; **`GOPORTS_LOG=debug`**.
+12. ✅ **Sign / notarize macOS `.app`** – [`docs/MACOS_SIGNING.md`](docs/MACOS_SIGNING.md)
+    (procedure + optional CI notes).
+
 > Each section can be broken into issues/PRs. Start by tackling high-return
 > items; they’ll also lay groundwork for cross‑platform and testing work.
